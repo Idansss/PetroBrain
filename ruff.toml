@@ -1,0 +1,18 @@
+# Ruff config for PetroBrain (C1 CI gate).
+# Minimal, sensible baseline: keep the default lint rules but allow the line
+# length the codebase already uses and the star-import re-export pattern in
+# package __init__.py files.
+target-version = "py311"
+
+[lint]
+# E501 = line too long (the codebase is intentionally wider than 88 cols).
+# E702 = the codebase uses `;` for compact field/test declarations on purpose
+#        (e.g. app/models/schemas.py, tests/eval_harness.py).
+# E741 = `l` is used deliberately as a line-item loop variable in the MRV engine.
+ignore = ["E501", "E702", "E741"]
+
+[lint.per-file-ignores]
+# Package __init__.py files re-export with `from .x import *`.
+"__init__.py" = ["F401", "F403", "F405"]
+# Tests use top-level imports after sys.path manipulation.
+"tests/*" = ["E402"]

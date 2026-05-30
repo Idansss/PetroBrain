@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "PetroBrain Field",
+    "slug": "petrobrain-field",
+    "version": "0.1.0",
+    "scheme": "petrobrain",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": false,
+    "splash": {
+      "backgroundColor": "#0a2034"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.petrobrain.field"
+    },
+    "android": {
+      "package": "com.petrobrain.field"
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": ["expo-router"],
+    "extra": {
+      "apiBaseUrl": "http://localhost:8000"
+    }
+  }
+}

@@ -1,0 +1,60 @@
+"""FastAPI entrypoint - the Phase-1 Tier-A spine."""
+from __future__ import annotations
+
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
+from app.api import (
+    routes_admin_audit,
+    routes_admin_data_readiness,
+    routes_admin_documents,
+    routes_admin_permits,
+    routes_admin_tenants,
+    routes_admin_users,
+    routes_assets,
+    routes_calc,
+    routes_chat,
+    routes_documents,
+    routes_emissions,
+    routes_wellcontrol,
+)
+from app.config import get_settings
+from app.core.observability import metrics_response, setup_observability
+
+settings = get_settings()
+app = FastAPI(title=settings.app_name, version="0.1.0")
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+setup_observability(app, settings)
+
+app.include_router(routes_chat.router)
+app.include_router(routes_wellcontrol.router)
+app.include_router(routes_emissions.router)
+app.include_router(routes_documents.router)
+app.include_router(routes_documents.docs_router)
+app.include_router(routes_admin_documents.router)
+app.include_router(routes_admin_audit.router)
+app.include_router(routes_assets.router)
+app.include_router(routes_calc.router)
+app.include_router(routes_admin_tenants.router)
+app.include_router(routes_admin_users.router)
+app.include_router(routes_admin_data_readiness.router)
+app.include_router(routes_admin_permits.router)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.get("/", include_in_schema=False)
+async def index():
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "app": settings.app_name, "tier": "B" if settings.operational_tier else "A"}
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics():
+    return metrics_response()

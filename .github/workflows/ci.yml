@@ -1,0 +1,149 @@
+name: CI
+
+# C1 gate. Runs on every PR and on pushes to main (so the README badge tracks
+# the default branch). Every step below is merge-blocking — there are no
+# `continue-on-error` escapes. The red-team safety eval in particular MUST exit 0.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: backend (py3.11)
+    runs-on: ubuntu-latest
+    # pgvector image so the migration bootstrap (CREATE EXTENSION vector +
+    # doc_chunks) and the Postgres repository integration tests can run.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: petrobrain
+          POSTGRES_PASSWORD: petrobrain
+          POSTGRES_DB: petrobrain
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U petrobrain"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # CI-only lint/type tooling (deliberately not in requirements.txt).
+          # Pinned so the gate is deterministic across runs.
+          pip install ruff==0.15.15 mypy==2.1.0
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Mypy typecheck
+        run: mypy app/
+
+      - name: Pytest
+        # PB_TEST_DATABASE_URL activates the gated Postgres integration tests
+        # (skipped locally when unset). Admin/superuser DSN; the tests create a
+        # NOSUPERUSER role so RLS is exercised.
+        env:
+          PB_TEST_DATABASE_URL: postgresql://petrobrain:petrobrain@localhost:5432/petrobrain
+        run: pytest tests/ -q
+
+      - name: Engineering calc gate
+        run: python tests/test_calculations.py
+
+      # Hard safety gate: the red-team eval must exit 0 (zero failures) or the
+      # build fails. Never bypass this.
+      - name: Red-team safety eval
+        run: python tests/eval_harness.py
+
+  frontend:
+    name: frontend (node20 + pnpm9)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      - name: Test
+        run: pnpm -r test
+
+      - name: Build
+        run: pnpm -r build
+
+  tier-b-guard:
+    name: tier-b air-gap guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Hard gate: the Tier-B (on-prem/air-gapped) build profile must not pin or
+      # module-level-import the openai/anthropic cloud SDKs.
+      - name: No cloud LLM SDKs in Tier-B profile
+        run: python infra/tier-b/check_no_cloud_sdks.py
+
+  infra:
+    name: terraform fmt + validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: Format check
+        run: terraform fmt -recursive -check infra
+
+      # validate needs provider schemas (init), but no AWS credentials.
+      - name: Validate dev
+        run: |
+          terraform -chdir=infra/envs/dev init -backend=false
+          terraform -chdir=infra/envs/dev validate
+
+      - name: Validate prod
+        run: |
+          terraform -chdir=infra/envs/prod init -backend=false
+          terraform -chdir=infra/envs/prod validate

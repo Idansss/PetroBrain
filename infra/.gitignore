@@ -1,0 +1,17 @@
+# Terraform working dirs and state — never commit these.
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+crash.log
+crash.*.log
+
+# Override files (local-only experiments)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# The provider lock is platform-specific as generated here; regenerate for your
+# target platforms with `terraform providers lock` and commit it deliberately.
+.terraform.lock.hcl

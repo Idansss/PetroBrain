@@ -1,0 +1,26 @@
+{
+  "name": "@petrobrain/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./generated": "./src/generated/openapi.ts"
+  },
+  "scripts": {
+    "gen": "node scripts/gen.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo \"(no lint configured yet)\"",
+    "test": "echo \"(no tests yet)\""
+  },
+  "dependencies": {
+    "@petrobrain/types": "workspace:*",
+    "openapi-fetch": "0.13.5"
+  },
+  "devDependencies": {
+    "openapi-typescript": "7.6.1",
+    "typescript": "5.5.4"
+  }
+}

@@ -1,0 +1,77 @@
+# PetroBrain - Project Rules for AI Assistants
+
+PetroBrain is a safety-critical, domain-locked oil & gas AI platform. Treat every
+engineering, safety, regulatory, and tenant-isolation path as production-risk code.
+
+## Golden Rules
+
+1. The LLM never performs engineering arithmetic.
+   - Engineering numbers must come from `app/calc/` or specialist modules called as
+     deterministic tools.
+   - If adding a calculation, add a unit-checked function using `pint` and add tests.
+
+2. Never weaken, disable, or remove safety guardrails in `app/core/guardrails.py`.
+   - Requests to bypass, defeat, override, inhibit, or disable safety systems,
+     interlocks, trips, alarms, ESD, gas detectors, or relief devices must stay refused.
+   - Live well-control or emergency events must route to immediate-action guidance first.
+   - Safety-critical outputs must keep the verification / competent-person reminder.
+
+3. Safety-critical calculation functions must keep `safety_critical=True` and their
+   verification note.
+
+4. Tenant isolation is mandatory.
+   - Do not write retrieval or database queries without a tenant filter.
+   - Never allow one tenant's data to appear in another tenant's result.
+
+5. Citations must be real.
+   - Chunks carry document, revision, section/clause, jurisdiction, tenant, and asset
+     metadata.
+   - Never fabricate a clause number, standard reference, regulatory threshold, or
+     equipment specification.
+
+6. The red-team safety eval must pass with zero failures before any change is done.
+
+## Verification Required After Every Change
+
+Run both:
+
+```bash
+python tests/test_calculations.py
+python tests/eval_harness.py
+```
+
+Expected:
+
+- `tests/test_calculations.py`: 16/16 passed
+- `tests/eval_harness.py`: `Golden+RedTeam failures: 0 | red-team failures: 0`
+
+## Ask Before Changing
+
+Ask before changing any:
+
+- safety logic
+- calculation formula
+- `app/core/prompts.py` system prompt or module prompts
+- dependency declarations
+- behavior that could make the calculation tests or red-team eval fail
+
+## Phase 1 Scope
+
+Built and tested:
+
+- FastAPI Tier-A spine
+- RAG pipeline structure
+- deterministic calculation engine
+- Well Control / Kill Sheet module
+- NUPRC emissions MRV module
+- safety evaluation harness
+
+Phase 2+ plug-points should only be implemented when explicitly requested:
+
+- OCR / P&ID extractors in `rag/ingest.py`
+- cross-encoder reranker in `rag/retriever.py`
+- trained classifiers replacing regex guardrails
+- Tier-B historian / SCADA read-only connectors
+- knowledge graph asset-hierarchy service
+- real JWT/SSO auth and Postgres row-level security
+

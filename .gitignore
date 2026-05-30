@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Logs and runtime artifacts
+*.log
+logs/
+tmp/
+temp/
+browser-check.png
+
+# Local-JSON persistence stores (runtime data, not source)
+/data/*.jsonl
+/data/*.jsonl.tmp
+
+# Node (frontend subtree also has its own .gitignore)
+node_modules/
+.next/
+.expo/
+*.tsbuildinfo
+
+# Terraform (infra subtree also has its own .gitignore)
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+

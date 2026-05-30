@@ -1,0 +1,23 @@
+{
+  "name": "petrobrain-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "gen:api": "pnpm --filter @petrobrain/api gen",
+    "build": "pnpm -r --parallel build",
+    "lint": "pnpm -r --parallel lint",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "test": "pnpm -r --parallel test",
+    "dev:web": "pnpm --filter @petrobrain/web dev",
+    "dev:admin": "pnpm --filter @petrobrain/admin dev",
+    "dev:field": "pnpm --filter @petrobrain/field start",
+    "storybook": "pnpm --filter @petrobrain/ui storybook"
+  },
+  "devDependencies": {
+    "typescript": "5.5.4"
+  }
+}

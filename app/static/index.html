@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PetroBrain Console</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23162321'/%3E%3Cpath d='M8 22h16M10 18h12M13 8h6l3 8H10z' stroke='%23d69e2e' stroke-width='2' fill='none'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>PetroBrain</h1>
+        <p>Tier-A operations console</p>
+      </div>
+      <div class="auth-strip">
+        <label for="authToken">API token</label>
+        <input id="authToken" placeholder="Paste JWT" autocomplete="off">
+        <span id="healthStatus" class="status">Checking API</span>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <nav class="tabs" aria-label="Primary tools">
+        <button class="tab is-active" data-view="chatView" type="button">Chat</button>
+        <button class="tab" data-view="killSheetView" type="button">Kill Sheet</button>
+        <button class="tab" data-view="emissionsView" type="button">Emissions MRV</button>
+        <button class="tab" data-view="documentsView" type="button">Documents</button>
+      </nav>
+
+      <section id="chatView" class="view is-active" aria-labelledby="chatTitle">
+        <div class="split">
+          <form id="chatForm" class="panel form-grid">
+            <div class="panel-title">
+              <h2 id="chatTitle">Domain Chat</h2>
+              <span class="badge">Guardrailed</span>
+            </div>
+            <label>
+              Module
+              <select name="module">
+                <option value="general">General</option>
+                <option value="well_control">Well Control</option>
+                <option value="emissions_mrv">Emissions MRV</option>
+              </select>
+            </label>
+            <label>
+              User role
+              <input name="user_role" value="engineer">
+            </label>
+            <label>
+              Jurisdiction
+              <input name="jurisdiction" value="Nigeria">
+            </label>
+            <label>
+              Asset context
+              <input name="asset_context" value="demo asset">
+            </label>
+            <label class="wide">
+              Message
+              <textarea name="message" rows="7">What should I check before preparing a well-control kill sheet?</textarea>
+            </label>
+            <label class="check-row wide">
+              <input type="checkbox" name="offline_mode">
+              Offline mode
+            </label>
+            <div class="actions wide">
+              <button type="submit">Send</button>
+            </div>
+          </form>
+          <section class="panel output" aria-live="polite">
+            <div class="panel-title">
+              <h2>Response</h2>
+              <button id="clearChat" class="secondary" type="button">Clear</button>
+            </div>
+            <div id="chatOutput" class="empty">No response yet.</div>
+          </section>
+        </div>
+      </section>
+
+      <section id="killSheetView" class="view" aria-labelledby="killTitle">
+        <div class="split">
+          <form id="killSheetForm" class="panel form-grid">
+            <div class="panel-title">
+              <h2 id="killTitle">Well Control Kill Sheet</h2>
+              <span class="badge critical">Safety critical</span>
+            </div>
+            <label>
+              Method
+              <select name="method">
+                <option value="wait_and_weight">Wait and Weight</option>
+                <option value="drillers">Driller's</option>
+              </select>
+            </label>
+            <label><span>TVD, ft</span><input name="tvd_ft" type="number" step="0.01" value="10000"></label>
+            <label><span>MD, ft</span><input name="md_ft" type="number" step="0.01" value="10000"></label>
+            <label><span>OMW, ppg</span><input name="omw_ppg" type="number" step="0.01" value="9.6"></label>
+            <label><span>SIDPP, psi</span><input name="sidpp_psi" type="number" step="0.01" value="400"></label>
+            <label><span>SICP, psi</span><input name="sicp_psi" type="number" step="0.01" value="600"></label>
+            <label><span>Pit gain, bbl</span><input name="pit_gain_bbl" type="number" step="0.01" value="20"></label>
+            <label><span>SCR pressure, psi</span><input name="scr_pressure_psi" type="number" step="0.01" value="800"></label>
+            <label><span>Pump output, bbl/stk</span><input name="pump_output_bbl_per_stk" type="number" step="0.0001" value="0.1"></label>
+            <label><span>Drill-string volume, bbl</span><input name="drill_string_volume_bbl" type="number" step="0.01" value="120"></label>
+            <label><span>Annulus volume, bbl</span><input name="annulus_volume_bit_to_surface_bbl" type="number" step="0.01" value="180"></label>
+            <label><span>Annular capacity, bbl/ft</span><input name="annular_capacity_bbl_per_ft" type="number" step="0.0001" value="0.0459"></label>
+            <label><span>Shoe TVD, ft</span><input name="shoe_tvd_ft" type="number" step="0.01" value="5000"></label>
+            <label><span>MAMW, ppg</span><input name="max_allowable_mw_ppg" type="number" step="0.01" value="14"></label>
+            <div class="actions wide">
+              <button type="submit">Build Kill Sheet</button>
+            </div>
+          </form>
+          <section class="panel output" aria-live="polite">
+            <div class="panel-title">
+              <h2>Kill Sheet Output</h2>
+              <button id="clearKill" class="secondary" type="button">Clear</button>
+            </div>
+            <div id="killOutput" class="empty">No kill sheet yet.</div>
+          </section>
+        </div>
+      </section>
+
+      <section id="emissionsView" class="view" aria-labelledby="emissionsTitle">
+        <div class="split">
+          <form id="emissionsForm" class="panel form-grid">
+            <div class="panel-title">
+              <h2 id="emissionsTitle">NUPRC MRV Inventory</h2>
+              <span class="badge">Audit ready</span>
+            </div>
+            <label><span>Facility ID</span><input name="facility_id" value="FAC-1"></label>
+            <label><span>Period</span><input name="period" value="2026-Q3"></label>
+            <label><span>Operator</span><input name="operator" value="Demo E&amp;P"></label>
+            <label><span>Asset</span><input name="asset" value="OML-DEMO"></label>
+            <label>
+              GWP set
+              <select name="gwp_set">
+                <option value="AR6">AR6</option>
+                <option value="AR5">AR5</option>
+              </select>
+            </label>
+            <label>
+              Target tier
+              <select name="target_tier">
+                <option value="Tier 3">Tier 3</option>
+                <option value="Tier 2">Tier 2</option>
+              </select>
+            </label>
+            <label>
+              Source type
+              <select id="sourceType">
+                <option value="flaring">Flaring</option>
+                <option value="venting">Venting</option>
+                <option value="fugitive_t2">Fugitive Tier 2</option>
+                <option value="fugitive_t3">Fugitive Tier 3</option>
+                <option value="combustion">Combustion</option>
+              </select>
+            </label>
+            <label><span>Source ID</span><input id="sourceId" value="FL-1"></label>
+            <label class="wide">
+              Source parameters
+              <textarea id="sourceParams" rows="8"></textarea>
+            </label>
+            <div class="actions wide">
+              <button id="loadReadySample" class="secondary" type="button">Tier 3 Sample</button>
+              <button id="loadGapSample" class="secondary" type="button">Gap Sample</button>
+              <button id="sampleSource" class="secondary" type="button">Sample</button>
+              <button id="addSource" class="secondary" type="button">Add Source</button>
+              <button type="submit">Build Inventory</button>
+            </div>
+            <div class="wide source-list" id="sourceList"></div>
+          </form>
+          <section class="panel output" aria-live="polite">
+            <div class="panel-title">
+              <h2>Inventory Output</h2>
+              <div class="output-actions">
+                <button id="exportMrvJson" class="secondary" type="button">JSON</button>
+                <button id="exportMrvCsv" class="secondary" type="button">CSV</button>
+                <button id="printMrvReport" class="secondary" type="button">Print</button>
+                <button id="loadMrvRecords" class="secondary" type="button">Saved</button>
+                <button id="clearEmissions" class="secondary" type="button">Clear</button>
+              </div>
+            </div>
+            <div id="emissionsOutput" class="empty">No inventory yet.</div>
+          </section>
+        </div>
+      </section>
+
+      <section id="documentsView" class="view" aria-labelledby="documentsTitle">
+        <div class="split">
+          <form id="documentForm" class="panel form-grid">
+            <div class="panel-title">
+              <h2 id="documentsTitle">SOP Ingestion</h2>
+              <span class="badge">Text / Markdown</span>
+            </div>
+            <label class="wide">
+              File
+              <input id="documentFile" type="file" accept=".txt,.md,.markdown,.pdf">
+            </label>
+            <label><span>Document ID</span><input name="document_id" value="SOP-001"></label>
+            <label><span>Title</span><input name="title" value="Kick Detection SOP"></label>
+            <label><span>Revision</span><input name="revision" value="Rev 1"></label>
+            <label><span>Jurisdiction</span><input name="jurisdiction" value="Nigeria"></label>
+            <label><span>Asset</span><input name="asset" value="demo asset"></label>
+            <label><span>Effective date</span><input name="effective_date" type="date"></label>
+            <label>
+              Document type
+              <select name="document_type">
+                <option value="sop">SOP</option>
+                <option value="standard">Standard</option>
+                <option value="manual">Manual</option>
+                <option value="report">Report</option>
+              </select>
+            </label>
+            <label class="wide">
+              Extracted text
+              <textarea name="text" rows="10"># 1 Purpose
+Detect kicks early and route live well-control events to the competent person.
+
+## 2.1 Flow check
+If the flow check is positive, follow the rig shut-in procedure and record SIDPP, SICP and pit gain.</textarea>
+            </label>
+            <div class="actions wide">
+              <button id="loadDocSample" class="secondary" type="button">Sample SOP</button>
+              <button id="previewDocument" class="secondary" type="button">Preview Chunks</button>
+              <button type="submit">Save Ingest</button>
+            </div>
+          </form>
+          <section class="panel output" aria-live="polite">
+            <div class="panel-title">
+              <h2>Ingestion Output</h2>
+              <div class="output-actions">
+                <button id="loadDocumentRecords" class="secondary" type="button">Saved</button>
+                <button id="clearDocumentOutput" class="secondary" type="button">Clear</button>
+              </div>
+            </div>
+            <div id="documentOutput" class="empty">No document preview yet.</div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

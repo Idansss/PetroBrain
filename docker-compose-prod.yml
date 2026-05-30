@@ -1,0 +1,156 @@
+# PetroBrain Tier-B (on-prem / OT DMZ) stack.
+#
+# Runs the ENTIRE platform inside the customer boundary: API + worker + Postgres
+# (pgvector) + Redis + MinIO + a self-hosted vLLM model server. PB_LLM_PROVIDER
+# is self_hosted, so no outbound calls to any public LLM API. The app images are
+# built from requirements-tierb.txt (no anthropic/openai SDKs) — see
+# infra/tier-b/check_no_cloud_sdks.py and infra/SECURITY.md.
+#
+# Bring up:   docker compose -f docker-compose-prod.yml up -d --build
+# Migrate:    docker compose -f docker-compose-prod.yml --profile setup run --rm migrate
+# (operators provide a .env file next to this compose for secrets/overrides.)
+
+x-app-build: &app_build
+  context: .
+  args:
+    PIP_REQUIREMENTS: requirements-tierb.txt
+
+x-app-env: &app_env
+  PB_ENVIRONMENT: prod
+  PB_OPERATIONAL_TIER: "true" # Tier B
+  PB_LLM_PROVIDER: self_hosted
+  PB_LLM_API_BASE: http://vllm:8000
+  PB_LLM_MODEL: ${PB_LLM_MODEL:-petrobrain-local}
+  # A single vLLM serves one model, so embeddings run on their own OpenAI-
+  # compatible endpoint. Point PB_EMBEDDING_API_BASE at it (e.g. a second vLLM /
+  # text-embeddings-inference service); empty falls back to PB_LLM_API_BASE.
+  PB_EMBEDDING_API_BASE: ${PB_EMBEDDING_API_BASE:-}
+  PB_EMBEDDING_MODEL: ${PB_EMBEDDING_MODEL:-petrobrain-local}
+  PB_PERSISTENCE_BACKEND: postgres
+  PB_DATABASE_URL: postgresql+asyncpg://petrobrain:${POSTGRES_PASSWORD:-petrobrain}@db:5432/petrobrain
+  PB_REDIS_URL: redis://redis:6379/0
+  PB_CELERY_BROKER_URL: redis://redis:6379/1
+  PB_CELERY_RESULT_BACKEND: redis://redis:6379/2
+  PB_OBJECT_STORE_BACKEND: s3
+  PB_OBJECT_STORE_ENDPOINT: http://minio:9000
+  PB_OBJECT_STORE_REGION: ${PB_OBJECT_STORE_REGION:-af-south-1}
+  PB_OBJECT_STORE_BUCKET: ${PB_OBJECT_STORE_BUCKET:-petrobrain-docs}
+  PB_OBJECT_STORE_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+  PB_OBJECT_STORE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+  PB_OBJECT_STORE_USE_PATH_STYLE: "true"
+  PB_JWT_SECRET: ${PB_JWT_SECRET:?set PB_JWT_SECRET in .env (min 32 bytes)}
+  PB_OTEL_ENDPOINT: ${PB_OTEL_ENDPOINT:-}
+  PB_SOVEREIGN_REGION: ${PB_SOVEREIGN_REGION:-af-south-1}
+  PB_LOG_JSON: "true"
+
+services:
+  api:
+    build: *app_build
+    environment: *app_env
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports: ["8000:8000"]
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      vllm: { condition: service_started }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  worker:
+    build: *app_build
+    environment: *app_env
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2 -Q petrobrain.ingest
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    restart: unless-stopped
+
+  # One-shot: applies pgvector + all migrations. Run with `--profile setup`.
+  migrate:
+    build: *app_build
+    environment: *app_env
+    command: ["python", "-m", "app.db.pg"]
+    profiles: ["setup"]
+    depends_on:
+      db: { condition: service_healthy }
+    restart: "no"
+
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: petrobrain
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-petrobrain}
+      POSTGRES_DB: petrobrain
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U petrobrain"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: ["redisdata:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    command: server /data --console-address ":9001"
+    volumes: ["miniodata:/data"]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Self-hosted, OpenAI-compatible model server. The model is mounted read-only
+  # from the host (air-gapped: no model download at runtime). Requires the
+  # NVIDIA container runtime.
+  vllm:
+    image: vllm/vllm-openai:v0.6.6
+    command: >
+      --model /models/${PB_VLLM_MODEL_DIR:-current}
+      --served-model-name ${PB_LLM_MODEL:-petrobrain-local}
+      --max-model-len ${PB_VLLM_MAX_MODEL_LEN:-8192}
+    volumes:
+      - ${PB_VLLM_MODELS_HOST:-./models}:/models:ro
+    environment:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: ["gpu"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 300s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

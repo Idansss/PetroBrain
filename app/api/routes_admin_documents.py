@@ -1,0 +1,177 @@
+"""
+Admin document upload + status (A5).
+
+POST /admin/documents     multipart upload (file + metadata JSON), role=admin
+GET  /admin/documents     list ingest jobs for the principal's tenant
+GET  /admin/documents/{ingest_id}  status detail
+
+The route persists the raw file to object storage, creates a queued record,
+and enqueues the ingestion task. The Celery worker handles extract -> chunk
+-> embed -> upsert and walks the status state machine.
+"""
+from __future__ import annotations
+
+import json
+from typing import Any
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from pydantic import ValidationError
+
+from app.api.deps import Principal, require_asset_access, require_role
+from app.core.audit import AuditEvent, get_audit_logger
+from app.db.admin_document_repository import get_admin_document_repository
+from app.models.schemas import AdminDocumentMetadata
+from app.storage.object_store import get_object_store, object_key_for
+from app.workers.extractors import supported_extension
+from app.workers.ingest_worker import ingest_document_task
+
+
+router = APIRouter(prefix="/admin/documents", tags=["admin", "documents"])
+audit_logger = get_audit_logger()
+
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB; tighten per tenant later
+_admin_only = require_role("admin")
+
+
+@router.post("")
+async def upload_document(
+    file: UploadFile = File(...),
+    metadata: str = Form(..., description="JSON object with admin document metadata"),
+    who: Principal = Depends(_admin_only),
+):
+    parsed = _parse_metadata(metadata)
+    require_asset_access(who, parsed.asset)
+    filename = (file.filename or "").strip()
+    if not filename:
+        raise HTTPException(status_code=422, detail="uploaded file requires a filename")
+    if not supported_extension(filename):
+        raise HTTPException(
+            status_code=422,
+            detail="unsupported document extension (allowed: .txt .md .markdown .pdf .docx)",
+        )
+
+    body = await file.read()
+    if not body:
+        raise HTTPException(status_code=422, detail="uploaded file is empty")
+    if len(body) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="uploaded file exceeds 50 MiB limit")
+
+    repo = _repository()
+    object_store = _object_store()
+
+    metadata_dict = parsed.model_dump(mode="json")
+    ingest_id = str(uuid4())
+    key = object_key_for(tenant_id=who.tenant_id, ingest_id=ingest_id, filename=filename)
+    try:
+        object_store.put(key, body, content_type=file.content_type)
+    except Exception as exc:  # noqa: BLE001
+        _audit_admin_doc(
+            "admin_document_upload_error", who, ingest_id, metadata_dict, filename,
+            error={"status_code": 500, "detail": str(exc)},
+        )
+        raise HTTPException(status_code=500, detail="object storage write failed") from exc
+
+    record = repo.create(
+        tenant_id=who.tenant_id,
+        user_id=who.user_id,
+        metadata=metadata_dict,
+        filename=filename,
+        content_type=file.content_type or "application/octet-stream",
+        size_bytes=len(body),
+        object_key=key,
+        ingest_id=ingest_id,
+    )
+
+    ingest_document_task.delay(who.tenant_id, record.ingest_id)
+
+    _audit_admin_doc(
+        "admin_document_upload",
+        who,
+        record.ingest_id,
+        metadata_dict,
+        filename,
+        response={"ingest_id": record.ingest_id, "status": "queued"},
+    )
+    return _to_status(repo.get(tenant_id=who.tenant_id, ingest_id=record.ingest_id))
+
+
+@router.get("")
+async def list_documents(who: Principal = Depends(_admin_only)):
+    return {"documents": _repository().list_records(tenant_id=who.tenant_id)}
+
+
+@router.get("/{ingest_id}")
+async def get_document(ingest_id: str, who: Principal = Depends(_admin_only)):
+    record = _repository().get(tenant_id=who.tenant_id, ingest_id=ingest_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="admin document ingest not found")
+    return _to_status(record)
+
+
+# ---- helpers -----------------------------------------------------------------
+
+def _repository():
+    return get_admin_document_repository()
+
+
+def _object_store():
+    return get_object_store()
+
+
+def _parse_metadata(raw: str) -> AdminDocumentMetadata:
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail=f"metadata is not valid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="metadata must be a JSON object")
+    try:
+        return AdminDocumentMetadata(**payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+
+
+def _to_status(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "ingest_id": record["ingest_id"],
+        "tenant_id": record["tenant_id"],
+        "document_id": record["document_id"],
+        "title": record["title"],
+        "filename": record["filename"],
+        "status": record["status"],
+        "chunk_count": record.get("chunk_count", 0),
+        "failure_reason": record.get("failure_reason"),
+        "created_utc": record["created_utc"],
+        "updated_utc": record.get("updated_utc", record["created_utc"]),
+    }
+
+
+def _audit_admin_doc(
+    event_type: str,
+    who: Principal,
+    ingest_id: str,
+    metadata: dict[str, Any],
+    filename: str,
+    response: dict[str, Any] | None = None,
+    error: dict[str, Any] | None = None,
+) -> None:
+    audit_logger.write(AuditEvent(
+        event_type=event_type,
+        tenant_id=who.tenant_id,
+        user_id=who.user_id,
+        role=who.role,
+        route="/admin/documents",
+        request={**metadata, "filename": filename},
+        response=response,
+        error=error,
+        flags=["upload_error"] if error else [],
+        metadata={
+            "ingest_id": ingest_id,
+            "document_id": metadata.get("document_id"),
+            "title": metadata.get("title"),
+            "revision": metadata.get("revision"),
+            "asset": metadata.get("asset"),
+            "filename": filename,
+        },
+    ))

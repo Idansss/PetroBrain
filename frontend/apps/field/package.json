@@ -1,0 +1,46 @@
+{
+  "name": "@petrobrain/field",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo \"(eslint config lands later)\"",
+    "test": "vitest run",
+    "build": "echo \"(EAS build profile lands with C2)\""
+  },
+  "dependencies": {
+    "@petrobrain/api": "workspace:*",
+    "@petrobrain/types": "workspace:*",
+    "@react-native-community/netinfo": "11.3.1",
+    "expo": "51.0.39",
+    "expo-constants": "~16.0.2",
+    "expo-linking": "~6.3.1",
+    "expo-print": "~13.0.1",
+    "expo-router": "~3.5.23",
+    "expo-secure-store": "~13.0.2",
+    "expo-sharing": "~12.0.1",
+    "expo-speech": "~12.0.2",
+    "expo-sqlite": "~14.0.6",
+    "expo-status-bar": "1.12.1",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-native": "0.74.5",
+    "react-native-gesture-handler": "~2.16.1",
+    "react-native-reanimated": "~3.10.1",
+    "react-native-safe-area-context": "4.10.5",
+    "react-native-screens": "3.31.1",
+    "react-native-signature-canvas": "4.7.2",
+    "react-native-webview": "13.8.6",
+    "zustand": "4.5.5"
+  },
+  "devDependencies": {
+    "@types/react": "18.2.79",
+    "typescript": "5.5.4",
+    "vitest": "2.1.1"
+  }
+}
