@@ -1,8 +1,10 @@
-import { Banner, Button, Card } from '@petrobrain/ui';
+import Link from 'next/link';
+
+import { Banner, Card } from '@petrobrain/ui';
 
 /**
- * B1 placeholder home. B2 wires the chat shell; this page exists so the
- * scaffold builds and a smoke test of the design system can be eyeballed.
+ * Office app landing. Links to the shipped surfaces: chat (B2), emissions
+ * MRV (B4), and document upload (B3).
  */
 export default function HomePage() {
   return (
@@ -10,17 +12,31 @@ export default function HomePage() {
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold text-neutral-800">PetroBrain — Office</h1>
         <p className="text-sm text-neutral-500">
-          Scaffold only. Chat, MRV dashboard, and document upload land in B2–B4.
+          Domain-locked oil &amp; gas operations console.
         </p>
       </header>
 
       <Banner tone="info" title="DECISION SUPPORT ONLY">
-        Verify all kill-sheet numbers with the competent person before acting.
+        Verify all safety-critical numbers with the competent person before acting.
       </Banner>
 
-      <Card title="Next step" description="Wire chat with streaming + citations (B2).">
-        <Button variant="primary">Open chat (B2)</Button>
-      </Card>
+      <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <Link href="/chat" className="block">
+          <Card title="Chat" description="Guardrailed domain chat with streaming answers + citations.">
+            <span className="text-sm font-medium text-primary-700">Open chat →</span>
+          </Card>
+        </Link>
+        <Link href="/emissions" className="block">
+          <Card title="Emissions MRV" description="NUPRC Tier-3 inventory dashboard.">
+            <span className="text-sm font-medium text-primary-700">Open MRV →</span>
+          </Card>
+        </Link>
+        <Link href="/admin/documents" className="block">
+          <Card title="Documents" description="Upload + track SOP ingestion.">
+            <span className="text-sm font-medium text-primary-700">Open documents →</span>
+          </Card>
+        </Link>
+      </section>
     </main>
   );
 }
