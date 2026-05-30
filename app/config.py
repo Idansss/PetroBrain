@@ -36,6 +36,14 @@ class Settings(BaseSettings):
     app_name: str = "PetroBrain"
     environment: str = "dev"
 
+    # Cross-origin: the office/admin web apps (different port) call this API from
+    # the browser. Comma-separated allowlist; lock down to the real origin(s) in
+    # production.
+    cors_allow_origins: str = (
+        "http://localhost:3000,http://localhost:3001,"
+        "http://127.0.0.1:3000,http://127.0.0.1:3001"
+    )
+
     # LLM
     llm_provider: str = "anthropic"          # anthropic | self_hosted
     llm_model: str = "claude-sonnet-4-6"

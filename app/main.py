@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -27,6 +28,20 @@ from app.core.observability import metrics_response, setup_observability
 settings = get_settings()
 app = FastAPI(title=settings.app_name, version="0.1.0")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+# Allow the browser-based web/admin apps (served from a different port) to call
+# this API. Added BEFORE observability instrumentation, which builds/wraps the
+# middleware stack — middleware added after instrument_app is ignored. Auth is
+# via the Authorization header (no cookies), so credentials stay off; lock the
+# origin allowlist down in production via PB_CORS_ALLOW_ORIGINS.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in settings.cors_allow_origins.split(",") if o.strip()],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    allow_credentials=False,
+)
+
 setup_observability(app, settings)
 
 app.include_router(routes_chat.router)
