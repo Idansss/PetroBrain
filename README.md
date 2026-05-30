@@ -1,8 +1,6 @@
 # PetroBrain — Phase-1 Repository (Tier A spine + two specialist modules)
 
-[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
-
-<!-- Replace OWNER/REPO above with the GitHub org/repo slug once the remote is set. -->
+[![CI](https://github.com/Lingz450/PetroBrain/actions/workflows/ci.yml/badge.svg)](https://github.com/Lingz450/PetroBrain/actions/workflows/ci.yml)
 
 A working Phase-1 scaffold for a domain-locked oil & gas AI. This repo contains:
 
