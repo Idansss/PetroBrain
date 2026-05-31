@@ -23,13 +23,11 @@ services:
     dockerContext: .
     healthCheckPath: /health
     autoDeploy: true
-    # Run migrations on startup (idempotent via IF NOT EXISTS) before uvicorn
-    # so a fresh Neon database self-bootstraps without manual psql work.
-    # JSON-array form is required - the bare `sh -c "..."` string form gets
-    # tokenized by Render's launcher as a single argv element, so sh ends up
-    # treating the entire script as a literal command name and fails with
-    # `sh: 1: python -m app.db.pg && uvicorn ...: not found`.
-    dockerCommand: '["sh", "-c", "python -m app.db.pg && uvicorn app.main:app --host 0.0.0.0 --port $PORT"]'
+    # Start command lives in the Dockerfile CMD - Render's launcher mangles
+    # &&-chained dockerCommand strings (both bare and JSON-array form fail
+    # with status 127, "not found"). Dockerfile CMD is built once at image
+    # build time and exec'd untouched, so the migration + uvicorn chain
+    # runs cleanly.
     envVars:
       - key: PORT
         value: "8000"
