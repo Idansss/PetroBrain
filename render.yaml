@@ -25,7 +25,11 @@ services:
     autoDeploy: true
     # Run migrations on startup (idempotent via IF NOT EXISTS) before uvicorn
     # so a fresh Neon database self-bootstraps without manual psql work.
-    dockerCommand: sh -c "python -m app.db.pg && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    # JSON-array form is required - the bare `sh -c "..."` string form gets
+    # tokenized by Render's launcher as a single argv element, so sh ends up
+    # treating the entire script as a literal command name and fails with
+    # `sh: 1: python -m app.db.pg && uvicorn ...: not found`.
+    dockerCommand: '["sh", "-c", "python -m app.db.pg && uvicorn app.main:app --host 0.0.0.0 --port $PORT"]'
     envVars:
       - key: PORT
         value: "8000"
