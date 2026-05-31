@@ -13,6 +13,13 @@ import {
 import type { MessageAttachment } from '@/lib/chat/types';
 import { usePendingPromptStore } from '@/lib/chat/pendingPrompt';
 import { useSettingsStore } from '@/lib/chat/settings';
+import { useChatStore, type ThinkingMode } from '@/lib/chat/store';
+
+const THINKING_MODES: Array<{ key: ThinkingMode; label: string; title: string }> = [
+  { key: 'instant', label: 'Instant', title: 'Fast Haiku model, short answers' },
+  { key: 'default', label: 'Default', title: 'Standard Sonnet, no extended thinking' },
+  { key: 'extended', label: 'Extended', title: 'Sonnet with extended thinking for hard problems' },
+];
 
 const QUICK_ACTIONS: Array<{
   key: string;
@@ -130,6 +137,8 @@ function formatBytes(n: number): string {
 }
 
 export function ChatComposer({ onSubmit, disabled, sending, onStop }: ChatComposerProps) {
+  const thinkingMode = useChatStore((s) => s.thinkingMode);
+  const setThinkingMode = useChatStore((s) => s.setThinkingMode);
   const [value, setValue] = useState('');
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -375,6 +384,28 @@ export function ChatComposer({ onSubmit, disabled, sending, onStop }: ChatCompos
                 />
               </svg>
             </button>
+            <div className="ml-0.5 mr-1 inline-flex overflow-hidden rounded-full border border-neutral-200/80 bg-white p-0.5 dark:border-neutral-700 dark:bg-neutral-900">
+              {THINKING_MODES.map((m) => {
+                const active = thinkingMode === m.key;
+                return (
+                  <button
+                    key={m.key}
+                    type="button"
+                    onClick={() => setThinkingMode(m.key)}
+                    disabled={disabled}
+                    title={m.title}
+                    aria-pressed={active}
+                    className={
+                      active
+                        ? 'rounded-full bg-primary-100 px-2.5 py-0.5 text-xs font-semibold text-primary-700 dark:bg-primary-900/40 dark:text-primary-200'
+                        : 'rounded-full px-2.5 py-0.5 text-xs font-medium text-neutral-500 hover:text-neutral-800 disabled:cursor-not-allowed disabled:opacity-50 dark:text-neutral-400 dark:hover:text-neutral-100'
+                    }
+                  >
+                    {m.label}
+                  </button>
+                );
+              })}
+            </div>
             {QUICK_ACTIONS.map((a) => (
               <button
                 key={a.key}

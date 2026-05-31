@@ -193,7 +193,7 @@ class Orchestrator:
         self, user_text: str, *, module: str = "general", tenant_id: str = "",
         user_role: str | None = None, jurisdiction: str | None = None,
         asset_context: str | None = None, offline_mode: bool = False,
-        attachments: list[Any] | None = None,
+        attachments: list[Any] | None = None, thinking_mode: str = "default",
     ) -> Turn:
         flags: list[str] = []
 
@@ -255,7 +255,7 @@ class Orchestrator:
         user_content = _build_user_message_content(user_text, attachments)
         messages: list[dict[str, Any]] = [{"role": "user", "content": user_content}]
         try:
-            resp = await self.llm.complete(system, messages, tools=tools or None)
+            resp = await self.llm.complete(system, messages, tools=tools or None, thinking_mode=thinking_mode)
         except LLMConfigurationError as exc:
             return Turn(
                 answer=f"LLM provider is not configured: {exc}",
@@ -320,7 +320,7 @@ class Orchestrator:
             messages.append(_assistant_turn_with_tool_use(resp.text, resp.tool_calls))
             messages += tool_blocks
             try:
-                resp = await self.llm.complete(system, messages, tools=tools or None)
+                resp = await self.llm.complete(system, messages, tools=tools or None, thinking_mode=thinking_mode)
             except LLMConfigurationError as exc:
                 return Turn(
                     answer=f"LLM provider is not configured: {exc}",
@@ -360,7 +360,7 @@ class Orchestrator:
         self, user_text: str, *, module: str = "general", tenant_id: str = "",
         user_role: str | None = None, jurisdiction: str | None = None,
         asset_context: str | None = None, offline_mode: bool = False,
-        attachments: list[Any] | None = None,
+        attachments: list[Any] | None = None, thinking_mode: str = "default",
     ) -> AsyncIterator[dict[str, Any]]:
         flags: list[str] = []
         pre = pre_check(user_text)
@@ -433,7 +433,7 @@ class Orchestrator:
 
         try:
             if tools:
-                resp = await self.llm.complete(system, messages, tools=tools)
+                resp = await self.llm.complete(system, messages, tools=tools, thinking_mode=thinking_mode)
                 model = resp.model
                 usage = dict(resp.usage or {})
                 answer_text = resp.text or ""
@@ -492,6 +492,7 @@ class Orchestrator:
                     final: dict[str, Any] = {"text": "", "tool_calls": [], "usage": {}, "model": ""}
                     async for event in self._stream_llm_to_events(
                         system, messages, None, final, emit=True,
+                        thinking_mode=thinking_mode,
                     ):
                         yield event
                     answer_text = final["text"]
@@ -503,6 +504,7 @@ class Orchestrator:
                 final = {"text": "", "tool_calls": [], "usage": {}, "model": ""}
                 async for event in self._stream_llm_to_events(
                     system, messages, None, final, emit=True,
+                    thinking_mode=thinking_mode,
                 ):
                     yield event
                 answer_text = final["text"]
@@ -552,7 +554,8 @@ class Orchestrator:
 
     async def _stream_llm_to_events(self, system: str, messages: list[dict[str, Any]],
                                     tools: list[dict[str, Any]] | None,
-                                    final: dict[str, Any], *, emit: bool):
+                                    final: dict[str, Any], *, emit: bool,
+                                    thinking_mode: str = "default"):
         """Yield ``{"event": "token", "data": {...}}`` events live as the LLM
         produces them, populating ``final`` (a caller-owned dict) with the
         terminal text/tool_calls/usage/model. Yielding live is the difference
@@ -561,7 +564,7 @@ class Orchestrator:
         buffered events into a list and only yielded after the stream closed.
         """
         if hasattr(self.llm, "stream_complete"):
-            async for item in self.llm.stream_complete(system, messages, tools=tools or None):
+            async for item in self.llm.stream_complete(system, messages, tools=tools or None, thinking_mode=thinking_mode):
                 if item.get("type") == "token":
                     final["text"] += item.get("text", "")
                     if emit:
@@ -574,7 +577,7 @@ class Orchestrator:
                         "model": item.get("model", ""),
                     })
         else:
-            resp = await self.llm.complete(system, messages, tools=tools or None)
+            resp = await self.llm.complete(system, messages, tools=tools or None, thinking_mode=thinking_mode)
             final["text"] = resp.text
             final["tool_calls"] = resp.tool_calls
             final["usage"] = resp.usage

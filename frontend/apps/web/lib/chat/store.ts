@@ -5,11 +5,14 @@ import type { Module, Principal } from '@petrobrain/types';
 
 import { decodePrincipal } from './jwt.js';
 
+export type ThinkingMode = 'instant' | 'default' | 'extended';
+
 interface ChatStoreState {
   token: string | null;
   principal: Principal | null;
   module: Module;
   assetContext: string | null;
+  thinkingMode: ThinkingMode;
   apiBaseUrl: string;
   /**
    * False until zustand finishes hydrating from sessionStorage. Used by the
@@ -20,6 +23,7 @@ interface ChatStoreState {
   setToken: (token: string | null) => void;
   setModule: (m: Module) => void;
   setAssetContext: (asset: string | null) => void;
+  setThinkingMode: (m: ThinkingMode) => void;
 }
 
 /**
@@ -34,6 +38,7 @@ export const useChatStore = create<ChatStoreState>()(
       principal: null,
       module: 'general',
       assetContext: null,
+      thinkingMode: 'default',
       apiBaseUrl: typeof window === 'undefined'
         ? (process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000')
         : (window as Window & { __PB_API__?: string }).__PB_API__
@@ -43,6 +48,7 @@ export const useChatStore = create<ChatStoreState>()(
       setToken: (token) => set({ token, principal: decodePrincipal(token) }),
       setModule: (module) => set({ module }),
       setAssetContext: (assetContext) => set({ assetContext }),
+      setThinkingMode: (thinkingMode) => set({ thinkingMode }),
     }),
     {
       name: 'petrobrain-chat',
@@ -66,6 +72,7 @@ export const useChatStore = create<ChatStoreState>()(
         principal: s.principal,
         module: s.module,
         assetContext: s.assetContext,
+        thinkingMode: s.thinkingMode,
       }),
       onRehydrateStorage: () => (state) => {
         // Re-derive the principal in case the persisted shape predates a schema bump.

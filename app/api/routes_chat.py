@@ -38,7 +38,7 @@ async def chat(
         req.message, module=req.module, tenant_id=who.tenant_id,
         user_role=req.user_role or who.role, jurisdiction=req.jurisdiction,
         asset_context=req.asset_context, offline_mode=req.offline_mode,
-        attachments=req.attachments,
+        attachments=req.attachments, thinking_mode=req.thinking_mode,
     )
     latency_seconds = perf_counter() - started
     _finalize_chat_turn(req=req, turn=turn, who=who, latency_seconds=latency_seconds)
@@ -53,7 +53,7 @@ async def _stream_chat(req: ChatRequest, who: Principal):
         req.message, module=req.module, tenant_id=who.tenant_id,
         user_role=req.user_role or who.role, jurisdiction=req.jurisdiction,
         asset_context=req.asset_context, offline_mode=req.offline_mode,
-        attachments=req.attachments,
+        attachments=req.attachments, thinking_mode=req.thinking_mode,
     ):
         event = item["event"]
         data = item["data"]

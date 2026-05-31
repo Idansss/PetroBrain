@@ -34,6 +34,10 @@ class ChatRequest(BaseModel):
     asset_context: str | None = None
     offline_mode: bool = False
     attachments: list[ChatAttachment] = Field(default_factory=list)
+    # instant: small/fast model (Haiku), short reply, no thinking.
+    # default: configured Sonnet, no thinking - current behaviour.
+    # extended: Sonnet + extended thinking on, larger output budget.
+    thinking_mode: str = "default"
 
 
 class ChatResponse(BaseModel):

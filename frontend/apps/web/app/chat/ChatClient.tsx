@@ -29,6 +29,7 @@ export function ChatClient() {
   const principal = useChatStore((s) => s.principal);
   const module = useChatStore((s) => s.module);
   const assetContext = useChatStore((s) => s.assetContext);
+  const thinkingMode = useChatStore((s) => s.thinkingMode);
   const apiBaseUrl = useChatStore((s) => s.apiBaseUrl);
   const hasHydrated = useChatStore((s) => s.hasHydrated);
 
@@ -185,6 +186,7 @@ export function ChatClient() {
             module,
             asset_context: assetContext,
             user_role: principal.role,
+            thinking_mode: thinkingMode,
             ...(wireAttachments.length > 0 ? { attachments: wireAttachments } : {}),
           },
           signal: controller.signal,
@@ -235,6 +237,7 @@ export function ChatClient() {
       sending,
       setMessagesInStore,
       setTitleFromFirstMessage,
+      thinkingMode,
       token,
     ],
   );

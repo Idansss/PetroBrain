@@ -25,6 +25,16 @@ class LLMConfigurationError(RuntimeError):
     """Raised when the selected LLM provider cannot be called with current config."""
 
 
+# Instant mode swaps the configured Sonnet for the faster, cheaper Haiku;
+# extended mode keeps Sonnet but turns on the Anthropic extended-thinking
+# parameter. Only honored when provider == "anthropic"; the self-hosted
+# path serves whatever PB_LLM_MODEL points at.
+_INSTANT_MODEL = "claude-haiku-4-5-20251001"
+_EXTENDED_THINKING_BUDGET = 4096
+_EXTENDED_MAX_TOKENS = 8192
+_INSTANT_MAX_TOKENS = 1024
+
+
 class LLMService:
     def __init__(self) -> None:
         self.settings = get_settings()
@@ -34,11 +44,12 @@ class LLMService:
         system_prompt: str,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
+        thinking_mode: str = "default",
     ) -> LLMResponse:
         provider = self.settings.llm_provider
         self._validate_provider_config(provider)
         if provider == "anthropic":
-            return await self._anthropic(system_prompt, messages, tools)
+            return await self._anthropic(system_prompt, messages, tools, thinking_mode)
         elif provider == "self_hosted":
             return await self._self_hosted(system_prompt, messages, tools)
         raise ValueError(f"unknown llm_provider {provider}")
@@ -48,6 +59,7 @@ class LLMService:
         system_prompt: str,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
+        thinking_mode: str = "default",
     ) -> AsyncIterator[dict[str, Any]]:
         """
         Stream LLM output as provider-neutral events.
@@ -58,7 +70,7 @@ class LLMService:
         provider = self.settings.llm_provider
         self._validate_provider_config(provider)
         if provider == "anthropic":
-            async for event in self._anthropic_stream(system_prompt, messages, tools):
+            async for event in self._anthropic_stream(system_prompt, messages, tools, thinking_mode):
                 yield event
             return
         if provider == "self_hosted":
@@ -77,19 +89,12 @@ class LLMService:
                 "PB_LLM_API_BASE is required when PB_LLM_PROVIDER=self_hosted"
             )
 
-    async def _anthropic(self, system_prompt, messages, tools) -> LLMResponse:
+    async def _anthropic(self, system_prompt, messages, tools, thinking_mode="default") -> LLMResponse:
         # Hosted frontier model (Tier A). Requires the anthropic SDK + key at runtime.
         from anthropic import AsyncAnthropic  # imported lazily
 
         client = AsyncAnthropic()
-        kwargs: dict[str, Any] = {
-            "model": self.settings.llm_model,
-            "max_tokens": self.settings.llm_max_tokens,
-            "system": system_prompt,
-            "messages": messages,
-        }
-        if tools:
-            kwargs["tools"] = [self._to_anthropic_tool(t) for t in tools]
+        kwargs = self._anthropic_kwargs(system_prompt, messages, tools, thinking_mode)
         resp = await client.messages.create(**kwargs)
         text = "".join(b.text for b in resp.content if b.type == "text")
         tool_calls = [
@@ -103,18 +108,11 @@ class LLMService:
             model=resp.model,
         )
 
-    async def _anthropic_stream(self, system_prompt, messages, tools) -> AsyncIterator[dict[str, Any]]:
+    async def _anthropic_stream(self, system_prompt, messages, tools, thinking_mode="default") -> AsyncIterator[dict[str, Any]]:
         from anthropic import AsyncAnthropic
 
         client = AsyncAnthropic()
-        kwargs: dict[str, Any] = {
-            "model": self.settings.llm_model,
-            "max_tokens": self.settings.llm_max_tokens,
-            "system": system_prompt,
-            "messages": messages,
-        }
-        if tools:
-            kwargs["tools"] = [self._to_anthropic_tool(t) for t in tools]
+        kwargs = self._anthropic_kwargs(system_prompt, messages, tools, thinking_mode)
         chunks: list[str] = []
         async with client.messages.stream(**kwargs) as stream:
             async for text in stream.text_stream:
@@ -204,6 +202,28 @@ class LLMService:
             "usage": {},
             "model": self.settings.llm_model,
         }
+
+    def _anthropic_kwargs(self, system_prompt, messages, tools, thinking_mode: str) -> dict[str, Any]:
+        if thinking_mode == "instant":
+            model = _INSTANT_MODEL
+            max_tokens = _INSTANT_MAX_TOKENS
+        elif thinking_mode == "extended":
+            model = self.settings.llm_model
+            max_tokens = _EXTENDED_MAX_TOKENS
+        else:
+            model = self.settings.llm_model
+            max_tokens = self.settings.llm_max_tokens
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "system": system_prompt,
+            "messages": messages,
+        }
+        if thinking_mode == "extended":
+            kwargs["thinking"] = {"type": "enabled", "budget_tokens": _EXTENDED_THINKING_BUDGET}
+        if tools:
+            kwargs["tools"] = [self._to_anthropic_tool(t) for t in tools]
+        return kwargs
 
     @staticmethod
     def _to_anthropic_tool(t: dict[str, Any]) -> dict[str, Any]:

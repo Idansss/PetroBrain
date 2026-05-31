@@ -16,6 +16,7 @@ export interface StreamChatRequest {
   jurisdiction?: string | null;
   offline_mode?: boolean;
   attachments?: StreamChatAttachment[];
+  thinking_mode?: 'instant' | 'default' | 'extended';
 }
 
 export type StreamEvent =
