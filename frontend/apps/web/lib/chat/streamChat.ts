@@ -17,6 +17,7 @@ export interface StreamChatRequest {
   offline_mode?: boolean;
   attachments?: StreamChatAttachment[];
   thinking_mode?: 'instant' | 'default' | 'extended';
+  disable_web_search?: boolean;
 }
 
 export type StreamEvent =

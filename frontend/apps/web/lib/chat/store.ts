@@ -14,6 +14,13 @@ interface ChatStoreState {
   assetContext: string | null;
   thinkingMode: ThinkingMode;
   apiBaseUrl: string;
+  /** Default true. Composer + menu lets the user disable for the next turn. */
+  webSearchEnabled: boolean;
+  /**
+   * One-shot toggle: when true, the next assistant message auto-opens in canvas
+   * regardless of length. ChatClient resets it once consumed.
+   */
+  forceCanvasNext: boolean;
   /**
    * False until zustand finishes hydrating from sessionStorage. Used by the
    * top-level chat surface to suppress the "Sign in" gate flash on a reload
@@ -24,6 +31,8 @@ interface ChatStoreState {
   setModule: (m: Module) => void;
   setAssetContext: (asset: string | null) => void;
   setThinkingMode: (m: ThinkingMode) => void;
+  setWebSearchEnabled: (enabled: boolean) => void;
+  setForceCanvasNext: (force: boolean) => void;
 }
 
 /**
@@ -44,11 +53,15 @@ export const useChatStore = create<ChatStoreState>()(
         : (window as Window & { __PB_API__?: string }).__PB_API__
           ?? process.env.NEXT_PUBLIC_API_BASE_URL
           ?? 'http://localhost:8000',
+      webSearchEnabled: true,
+      forceCanvasNext: false,
       hasHydrated: false,
       setToken: (token) => set({ token, principal: decodePrincipal(token) }),
       setModule: (module) => set({ module }),
       setAssetContext: (assetContext) => set({ assetContext }),
       setThinkingMode: (thinkingMode) => set({ thinkingMode }),
+      setWebSearchEnabled: (webSearchEnabled) => set({ webSearchEnabled }),
+      setForceCanvasNext: (forceCanvasNext) => set({ forceCanvasNext }),
     }),
     {
       name: 'petrobrain-chat',
@@ -73,6 +86,10 @@ export const useChatStore = create<ChatStoreState>()(
         module: s.module,
         assetContext: s.assetContext,
         thinkingMode: s.thinkingMode,
+        webSearchEnabled: s.webSearchEnabled,
+        // forceCanvasNext is intentionally NOT persisted - it's a one-shot
+        // intent for the next send; reload should not silently force-open the
+        // canvas on the next turn.
       }),
       onRehydrateStorage: () => (state) => {
         // Re-derive the principal in case the persisted shape predates a schema bump.

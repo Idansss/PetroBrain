@@ -39,6 +39,7 @@ async def chat(
         user_role=req.user_role or who.role, jurisdiction=req.jurisdiction,
         asset_context=req.asset_context, offline_mode=req.offline_mode,
         attachments=req.attachments, thinking_mode=req.thinking_mode,
+        disable_web_search=req.disable_web_search,
     )
     latency_seconds = perf_counter() - started
     _finalize_chat_turn(req=req, turn=turn, who=who, latency_seconds=latency_seconds)
@@ -54,6 +55,7 @@ async def _stream_chat(req: ChatRequest, who: Principal):
         user_role=req.user_role or who.role, jurisdiction=req.jurisdiction,
         asset_context=req.asset_context, offline_mode=req.offline_mode,
         attachments=req.attachments, thinking_mode=req.thinking_mode,
+        disable_web_search=req.disable_web_search,
     ):
         event = item["event"]
         data = item["data"]

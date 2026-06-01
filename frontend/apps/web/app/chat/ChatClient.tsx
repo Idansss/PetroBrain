@@ -36,6 +36,9 @@ export function ChatClient() {
   const thinkingMode = useChatStore((s) => s.thinkingMode);
   const apiBaseUrl = useChatStore((s) => s.apiBaseUrl);
   const hasHydrated = useChatStore((s) => s.hasHydrated);
+  const webSearchEnabled = useChatStore((s) => s.webSearchEnabled);
+  const forceCanvasNext = useChatStore((s) => s.forceCanvasNext);
+  const setForceCanvasNext = useChatStore((s) => s.setForceCanvasNext);
 
   const ownerKey = useMemo(() => ownerKeyOf(principal), [principal]);
 
@@ -96,11 +99,20 @@ export function ChatClient() {
   // Auto-open the canvas the first time an assistant turn settles AND is
   // canvas-worthy. We track which id we already auto-opened against so flipping
   // back to the conversation doesn't re-open it after a manual close.
+  // forceCanvasNext is a one-shot composer-menu intent: open the next settled
+  // assistant message regardless of length, then clear the flag.
   useEffect(() => {
-    if (canvasMessageId) return;
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       const m = messages[i];
       if (!m || m.role !== 'assistant') continue;
+      if (m.streaming) return;
+      if (forceCanvasNext && lastAutoOpenedRef.current !== m.id) {
+        lastAutoOpenedRef.current = m.id;
+        setCanvasMessageId(m.id);
+        setForceCanvasNext(false);
+        return;
+      }
+      if (canvasMessageId) return;
       if (lastAutoOpenedRef.current === m.id) return;
       if (isCanvasWorthy(m)) {
         lastAutoOpenedRef.current = m.id;
@@ -108,7 +120,7 @@ export function ChatClient() {
       }
       return;
     }
-  }, [messages, canvasMessageId]);
+  }, [messages, canvasMessageId, forceCanvasNext, setForceCanvasNext]);
 
   // Reset auto-open memory when the user switches conversations so the
   // first canvas-worthy message in the new thread opens once.
@@ -262,6 +274,7 @@ export function ChatClient() {
             asset_context: assetContext,
             user_role: principal.role,
             thinking_mode: thinkingMode,
+            ...(webSearchEnabled ? {} : { disable_web_search: true }),
             ...(wireAttachments.length > 0 ? { attachments: wireAttachments } : {}),
           },
           signal: controller.signal,
@@ -314,6 +327,7 @@ export function ChatClient() {
       setTitleFromFirstMessage,
       thinkingMode,
       token,
+      webSearchEnabled,
     ],
   );
 

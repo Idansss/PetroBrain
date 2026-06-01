@@ -83,6 +83,14 @@ MODULE_TOOLS = {
 }
 
 
+def _tools_for(module: str, disable_web_search: bool) -> list[str]:
+    """Per-turn tool list for the module, optionally with web_search dropped."""
+    names = list(MODULE_TOOLS.get(module, []))
+    if disable_web_search:
+        names = [n for n in names if n != "web_search"]
+    return names
+
+
 @dataclass
 class Turn:
     answer: str
@@ -194,6 +202,7 @@ class Orchestrator:
         user_role: str | None = None, jurisdiction: str | None = None,
         asset_context: str | None = None, offline_mode: bool = False,
         attachments: list[Any] | None = None, thinking_mode: str = "default",
+        disable_web_search: bool = False,
     ) -> Turn:
         flags: list[str] = []
 
@@ -251,7 +260,7 @@ class Orchestrator:
         )
 
         # 4. LLM + tools
-        tools = [TOOL_REGISTRY[t][0] for t in MODULE_TOOLS.get(module, [])]
+        tools = [TOOL_REGISTRY[t][0] for t in _tools_for(module, disable_web_search)]
         user_content = _build_user_message_content(user_text, attachments)
         messages: list[dict[str, Any]] = [{"role": "user", "content": user_content}]
         try:
@@ -361,6 +370,7 @@ class Orchestrator:
         user_role: str | None = None, jurisdiction: str | None = None,
         asset_context: str | None = None, offline_mode: bool = False,
         attachments: list[Any] | None = None, thinking_mode: str = "default",
+        disable_web_search: bool = False,
     ) -> AsyncIterator[dict[str, Any]]:
         flags: list[str] = []
         pre = pre_check(user_text)
@@ -425,7 +435,7 @@ class Orchestrator:
             asset_context=prompt_asset_context, retrieved_context=retrieved_text or None,
             offline_mode=offline_mode, has_attachments=has_attachments,
         )
-        tools = [TOOL_REGISTRY[t][0] for t in MODULE_TOOLS.get(module, [])]
+        tools = [TOOL_REGISTRY[t][0] for t in _tools_for(module, disable_web_search)]
         user_content = _build_user_message_content(user_text, attachments)
         messages: list[dict[str, Any]] = [{"role": "user", "content": user_content}]
         tool_results: list[dict[str, Any]] = []

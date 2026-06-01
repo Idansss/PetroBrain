@@ -15,73 +15,12 @@ import { usePendingPromptStore } from '@/lib/chat/pendingPrompt';
 import { useSettingsStore } from '@/lib/chat/settings';
 import { useChatStore, type ThinkingMode } from '@/lib/chat/store';
 
+import { ComposerMenu } from './ComposerMenu';
+
 const THINKING_MODES: Array<{ key: ThinkingMode; label: string; title: string }> = [
   { key: 'instant', label: 'Instant', title: 'Fast Haiku model, short answers' },
   { key: 'default', label: 'Default', title: 'Standard Sonnet, no extended thinking' },
   { key: 'extended', label: 'Extended', title: 'Sonnet with extended thinking for hard problems' },
-];
-
-const QUICK_ACTIONS: Array<{
-  key: string;
-  label: string;
-  prompt: string;
-  icon: JSX.Element;
-}> = [
-  {
-    key: 'kill-sheet',
-    label: 'Kill sheet',
-    prompt:
-      'Build a kill sheet for 10,000 ft TVD, OMW 9.6 ppg, SIDPP 400 psi, SICP 600 psi, pit gain 20 bbl.',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden>
-        <path d="M4 4h12v3H4zM4 9h12v7H4z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-        <path d="M7 12h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  {
-    key: 'summarize-sop',
-    label: 'Summarize SOP',
-    prompt: 'Summarize the key steps and verification points in our well-control handover SOP.',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden>
-        <path
-          d="M6 3h6l4 4v9a1.5 1.5 0 01-1.5 1.5h-8.5A1.5 1.5 0 014.5 16V4.5A1.5 1.5 0 016 3z"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinejoin="round"
-        />
-        <path d="M7 10h6M7 13h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  {
-    key: 'mrv-gaps',
-    label: 'MRV gaps',
-    prompt:
-      'Which of our emission sources are not yet on measurement-based Tier 3, against the Jan-2027 deadline?',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden>
-        <path d="M3 16l4-5 3 3 4-6 3 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    ),
-  },
-  {
-    key: 'verify',
-    label: 'Verify a number',
-    prompt: 'Verify this number against the cited SOP / standard and show every source you used: ',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden>
-        <path
-          d="M10 2.5l7 4v5c0 3.8-3 6.6-7 8-4-1.4-7-4.2-7-8v-5l7-4z"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinejoin="round"
-        />
-        <path d="M7 10l2 2 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    ),
-  },
 ];
 
 const ACCEPTED = '.txt,.md,.markdown,.csv,.json,.pdf,.docx,image/*';
@@ -290,6 +229,52 @@ export function ChatComposer({ onSubmit, disabled, sending, onStop }: ChatCompos
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Ctrl+U opens the file picker (matches the shortcut shown in the +menu row).
+  useEffect(() => {
+    function onKey(e: globalThis.KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'u' || e.key === 'U')) {
+        e.preventDefault();
+        fileInputRef.current?.click();
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Browser screen capture into the attachments tray. User picks a screen,
+  // window, or tab; we grab one frame, encode it as PNG, drop it in as an
+  // image attachment, then release the stream.
+  async function takeScreenshot() {
+    setError(null);
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getDisplayMedia) {
+      setError('Screen capture not supported in this browser.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const track = stream.getVideoTracks()[0];
+      if (!track) throw new Error('No video track');
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      await video.play();
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 1920;
+      canvas.height = video.videoHeight || 1080;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas 2D unavailable');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      track.stop();
+      const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('Could not encode screenshot');
+      const filename = `screenshot-${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
+      const file = new File([blob], filename, { type: 'image/png' });
+      await addFiles([file]);
+    } catch (err) {
+      if ((err as { name?: string }).name === 'NotAllowedError') return; // user dismissed
+      setError(err instanceof Error ? err.message : 'Could not capture screenshot.');
+    }
+  }
+
   // Auto-grow the textarea up to ~6 lines.
   useEffect(() => {
     const el = textareaRef.current;
@@ -495,43 +480,17 @@ export function ChatComposer({ onSubmit, disabled, sending, onStop }: ChatCompos
               className="sr-only"
               aria-label="Attach files"
             />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
+            <ComposerMenu
+              onAttachFiles={() => fileInputRef.current?.click()}
+              onTakeScreenshot={takeScreenshot}
+              onApplyPrompt={applyAction}
               disabled={disabled}
-              aria-label="Attach files"
-              className="group inline-flex h-7 w-7 items-center justify-center rounded-full border border-neutral-200/80 bg-white text-neutral-500 transition-all hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:border-primary-600 dark:hover:bg-primary-900/30 dark:hover:text-primary-300"
-            >
-              <svg width="14" height="14" viewBox="0 0 20 20" fill="none">
-                <path
-                  d="M14.5 9.5l-5.6 5.6a3.5 3.5 0 01-5-5l6.6-6.6a2.3 2.3 0 113.3 3.3L7.5 13.5a1.2 1.2 0 11-1.7-1.7l5.4-5.4"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
+            />
             <ThinkingModePicker
               value={thinkingMode}
               onChange={setThinkingMode}
               disabled={disabled}
             />
-            {QUICK_ACTIONS.map((a) => (
-              <button
-                key={a.key}
-                type="button"
-                onClick={() => applyAction(a.prompt)}
-                disabled={disabled}
-                className="group inline-flex items-center gap-1.5 rounded-full border border-neutral-200/80 bg-white px-2.5 py-1 text-xs font-medium text-neutral-700 transition-all hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:border-primary-600 dark:hover:bg-primary-900/30 dark:hover:text-primary-300"
-                title={a.prompt}
-              >
-                <span className="text-neutral-500 transition-colors group-hover:text-primary-600 dark:text-neutral-400 dark:group-hover:text-primary-400">
-                  {a.icon}
-                </span>
-                {a.label}
-              </button>
-            ))}
           </div>
 
           {sending ? (

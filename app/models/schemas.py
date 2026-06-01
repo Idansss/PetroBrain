@@ -38,6 +38,10 @@ class ChatRequest(BaseModel):
     # default: configured Sonnet, no thinking - current behaviour.
     # extended: Sonnet + extended thinking on, larger output budget.
     thinking_mode: str = "default"
+    # When true, drop the web_search tool from the module's tool set for this
+    # turn - the model can still answer from the tenant's RAG corpus, but it
+    # cannot reach Tavily. Default false: web_search is available on demand.
+    disable_web_search: bool = False
 
 
 class ChatResponse(BaseModel):
