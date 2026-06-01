@@ -136,6 +136,134 @@ function formatBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function ThinkingModePicker({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: ThinkingMode;
+  onChange: (m: ThinkingMode) => void;
+  disabled?: boolean | undefined;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const current = THINKING_MODES.find((m) => m.key === value) ?? THINKING_MODES[1]!;
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointer(e: MouseEvent) {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: globalThis.KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setOpen(false);
+        buttonRef.current?.focus();
+      }
+    }
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative ml-0.5 mr-1">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        disabled={disabled}
+        aria-haspopup="true"
+        aria-expanded={open}
+        title={current.title}
+        className={`group inline-flex items-center gap-1.5 rounded-full border bg-white px-2.5 py-1 text-xs font-medium transition-all disabled:cursor-not-allowed disabled:opacity-50 dark:bg-neutral-900 ${
+          open
+            ? 'border-primary-300 text-primary-700 dark:border-primary-600 dark:text-primary-300'
+            : 'border-neutral-200/80 text-neutral-700 hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700 dark:border-neutral-700 dark:text-neutral-200 dark:hover:border-primary-600 dark:hover:bg-primary-900/30 dark:hover:text-primary-300'
+        }`}
+      >
+        <span>{current.label}</span>
+        <svg
+          aria-hidden
+          width="10"
+          height="10"
+          viewBox="0 0 20 20"
+          fill="none"
+          className={`text-neutral-500 transition-transform dark:text-neutral-400 ${open ? 'rotate-180' : ''}`}
+        >
+          <path d="M5 8l5 5 5-5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {open ? (
+        <ul
+          aria-label="Thinking mode"
+          className="absolute bottom-[calc(100%+6px)] left-0 z-30 w-56 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-[0_18px_36px_-12px_rgba(15,23,42,0.20),0_4px_10px_-3px_rgba(15,23,42,0.10)] dark:border-neutral-700 dark:bg-neutral-900"
+        >
+          {THINKING_MODES.map((m) => {
+            const selected = m.key === value;
+            return (
+              <li key={m.key}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange(m.key);
+                    setOpen(false);
+                    buttonRef.current?.focus();
+                  }}
+                  className={`flex w-full items-start gap-2 px-2.5 py-2 text-left transition-colors ${
+                    selected
+                      ? 'bg-primary-50/70 dark:bg-primary-900/30'
+                      : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/60'
+                  }`}
+                >
+                  <span
+                    className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border ${
+                      selected
+                        ? 'border-primary-500 bg-primary-500 text-white'
+                        : 'border-neutral-300 bg-white dark:border-neutral-600 dark:bg-neutral-800'
+                    }`}
+                  >
+                    {selected ? (
+                      <svg width="8" height="8" viewBox="0 0 20 20" fill="none">
+                        <path
+                          d="M5 10.5L8.5 14L15 7"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    ) : null}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className={`text-xs font-semibold ${
+                        selected
+                          ? 'text-primary-800 dark:text-primary-200'
+                          : 'text-neutral-900 dark:text-neutral-100'
+                      }`}
+                    >
+                      {m.label}
+                    </p>
+                    <p className="mt-0.5 text-[11px] leading-snug text-neutral-500 dark:text-neutral-400">
+                      {m.title}
+                    </p>
+                  </div>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 export function ChatComposer({ onSubmit, disabled, sending, onStop }: ChatComposerProps) {
   const thinkingMode = useChatStore((s) => s.thinkingMode);
   const setThinkingMode = useChatStore((s) => s.setThinkingMode);
@@ -384,32 +512,11 @@ export function ChatComposer({ onSubmit, disabled, sending, onStop }: ChatCompos
                 />
               </svg>
             </button>
-            <label className="relative ml-0.5 mr-1 inline-flex items-center">
-              <span className="sr-only">Thinking mode</span>
-              <select
-                value={thinkingMode}
-                onChange={(e) => setThinkingMode(e.target.value as ThinkingMode)}
-                disabled={disabled}
-                title={THINKING_MODES.find((m) => m.key === thinkingMode)?.title}
-                className="appearance-none rounded-full border border-neutral-200/80 bg-white py-1 pl-3 pr-7 text-xs font-medium text-neutral-700 transition-all hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:border-primary-600 dark:hover:bg-primary-900/30 dark:hover:text-primary-300 dark:focus:border-primary-500 dark:focus:ring-primary-800"
-              >
-                {THINKING_MODES.map((m) => (
-                  <option key={m.key} value={m.key}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-              <svg
-                aria-hidden
-                width="10"
-                height="10"
-                viewBox="0 0 20 20"
-                fill="none"
-                className="pointer-events-none absolute right-2.5 text-neutral-500 dark:text-neutral-400"
-              >
-                <path d="M5 8l5 5 5-5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </label>
+            <ThinkingModePicker
+              value={thinkingMode}
+              onChange={setThinkingMode}
+              disabled={disabled}
+            />
             {QUICK_ACTIONS.map((a) => (
               <button
                 key={a.key}
