@@ -7,6 +7,7 @@ import { Banner, Badge, Logo } from '@petrobrain/ui';
 import type { Citation } from '@petrobrain/types';
 
 import type { AssistantMessage, Message as MessageType } from '@/lib/chat/types';
+import { isCanvasWorthy } from '@/lib/chat/canvas';
 
 import { Markdown } from './Markdown';
 import { ThinkingIndicator } from './ThinkingIndicator';
@@ -24,14 +25,18 @@ const FLAG_BANNERS: Record<string, { tone: 'danger' | 'warn' | 'info'; title: st
 export interface MessageProps {
   message: MessageType;
   onRegenerate?: (assistantMessageId: string) => void;
+  onOpenCanvas?: (assistantMessageId: string) => void;
+  canvasMessageId?: string | null;
 }
 
-export function Message({ message, onRegenerate }: MessageProps) {
+export function Message({ message, onRegenerate, onOpenCanvas, canvasMessageId }: MessageProps) {
   if (message.role === 'user') return <UserMessageView message={message} />;
   return (
     <AssistantMessageView
       message={message}
       {...(onRegenerate ? { onRegenerate } : {})}
+      {...(onOpenCanvas ? { onOpenCanvas } : {})}
+      {...(canvasMessageId !== undefined ? { canvasMessageId } : {})}
     />
   );
 }
@@ -94,9 +99,13 @@ function UserMessageView({
 function AssistantMessageView({
   message,
   onRegenerate,
+  onOpenCanvas,
+  canvasMessageId,
 }: {
   message: AssistantMessage;
   onRegenerate?: (assistantMessageId: string) => void;
+  onOpenCanvas?: (assistantMessageId: string) => void;
+  canvasMessageId?: string | null;
 }) {
   const safetyToolResult = message.toolResults.find(
     (tr) =>
@@ -168,11 +177,39 @@ function AssistantMessageView({
         ) : null}
 
         {isFinal && hasText ? (
-          <AssistantToolbar
-            text={message.text}
-            messageId={message.id}
-            {...(onRegenerate ? { onRegenerate } : {})}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <AssistantToolbar
+              text={message.text}
+              messageId={message.id}
+              {...(onRegenerate ? { onRegenerate } : {})}
+            />
+            {onOpenCanvas && isCanvasWorthy(message) && canvasMessageId !== message.id ? (
+              <button
+                type="button"
+                onClick={() => onOpenCanvas(message.id)}
+                title="Open this response in the canvas side panel"
+                className="inline-flex h-7 items-center gap-1.5 rounded-full border border-neutral-200/80 bg-white px-2.5 text-[11px] font-medium text-neutral-600 transition-all hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:border-primary-600 dark:hover:bg-primary-900/30 dark:hover:text-primary-300"
+              >
+                <svg width="11" height="11" viewBox="0 0 20 20" fill="none" aria-hidden>
+                  <path
+                    d="M4 5.5A1.5 1.5 0 015.5 4h9A1.5 1.5 0 0116 5.5v9a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 014 14.5v-9z"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                  />
+                  <path d="M11 4v12M11 9h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+                Open in canvas
+              </button>
+            ) : null}
+            {canvasMessageId === message.id ? (
+              <span className="inline-flex h-7 items-center gap-1.5 rounded-full border border-primary-200/70 bg-primary-50 px-2.5 text-[11px] font-medium text-primary-700 dark:border-primary-700/40 dark:bg-primary-900/30 dark:text-primary-300">
+                <svg width="11" height="11" viewBox="0 0 20 20" fill="none" aria-hidden>
+                  <path d="M5 10.5L8.5 14L15 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Open in canvas
+              </span>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </article>

@@ -8,11 +8,13 @@ import { useChatStore } from '@/lib/chat/store';
 import { ownerKeyOf, useConversationsStore } from '@/lib/chat/conversations';
 import { exportConversation, isExportable } from '@/lib/chat/exportConversation';
 import { buildSnapshot, mintShare, shareUrlFor, ShareApiError } from '@/lib/chat/shares';
+import { isCanvasWorthy } from '@/lib/chat/canvas';
 import { useProjectsStore } from '@/lib/chat/projects';
 import { useSettingsStore } from '@/lib/chat/settings';
 import { streamChat, type StreamEvent } from '@/lib/chat/streamChat';
 
 import { AuthGate } from './components/AuthGate';
+import { CanvasPanel } from './components/CanvasPanel';
 import { ChatComposer } from './components/ChatComposer';
 import { ChatSidebar } from './components/ChatSidebar';
 import { EmptyState } from './components/EmptyState';
@@ -81,6 +83,42 @@ export function ChatClient() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  const [canvasMessageId, setCanvasMessageId] = useState<string | null>(null);
+  const lastAutoOpenedRef = useRef<string | null>(null);
+
+  const canvasMessage = useMemo(() => {
+    if (!canvasMessageId) return null;
+    const m = messages.find((msg) => msg.id === canvasMessageId);
+    return m && m.role === 'assistant' ? m : null;
+  }, [canvasMessageId, messages]);
+
+  // Auto-open the canvas the first time an assistant turn settles AND is
+  // canvas-worthy. We track which id we already auto-opened against so flipping
+  // back to the conversation doesn't re-open it after a manual close.
+  useEffect(() => {
+    if (canvasMessageId) return;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const m = messages[i];
+      if (!m || m.role !== 'assistant') continue;
+      if (lastAutoOpenedRef.current === m.id) return;
+      if (isCanvasWorthy(m)) {
+        lastAutoOpenedRef.current = m.id;
+        setCanvasMessageId(m.id);
+      }
+      return;
+    }
+  }, [messages, canvasMessageId]);
+
+  // Reset auto-open memory when the user switches conversations so the
+  // first canvas-worthy message in the new thread opens once.
+  useEffect(() => {
+    lastAutoOpenedRef.current = null;
+    setCanvasMessageId(null);
+  }, [activeId]);
+
+  const closeCanvas = useCallback(() => setCanvasMessageId(null), []);
+  const openCanvas = useCallback((messageId: string) => setCanvasMessageId(messageId), []);
 
   const [shareStatus, setShareStatus] = useState<
     | { kind: 'idle' }
@@ -394,7 +432,13 @@ export function ChatClient() {
   }
 
   return (
-    <div className="grid min-h-screen grid-cols-[15rem_minmax(0,1fr)] gap-0">
+    <div
+      className={
+        canvasMessage
+          ? 'grid min-h-screen grid-cols-[15rem_minmax(0,1fr)_minmax(0,1fr)] gap-0'
+          : 'grid min-h-screen grid-cols-[15rem_minmax(0,1fr)] gap-0'
+      }
+    >
       <ChatSidebar />
       <section className="relative flex h-screen flex-col overflow-hidden bg-gradient-to-b from-white via-white to-primary-50/20 dark:from-neutral-950 dark:via-neutral-950 dark:to-primary-900/10">
         <div
@@ -539,7 +583,12 @@ export function ChatClient() {
               <EmptyState onPrompt={send} />
             </div>
           ) : (
-            <MessageList messages={messages} onRegenerate={regenerate} />
+            <MessageList
+              messages={messages}
+              onRegenerate={regenerate}
+              onOpenCanvas={openCanvas}
+              canvasMessageId={canvasMessageId}
+            />
           )}
         </div>
         {error ? (
@@ -554,6 +603,9 @@ export function ChatClient() {
           onStop={stop}
         />
       </section>
+      {canvasMessage ? (
+        <CanvasPanel message={canvasMessage} onClose={closeCanvas} />
+      ) : null}
     </div>
   );
 }
