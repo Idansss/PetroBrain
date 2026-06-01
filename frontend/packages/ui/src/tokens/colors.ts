@@ -46,6 +46,7 @@ export const colors = {
     info: { fg: '#0a3d6b', bg: '#dfeefd', border: '#1f6fb8' },
     warn: { fg: '#7a4b00', bg: '#fdecd0', border: '#b87a14' },
     danger: { fg: '#7a1c1f', bg: '#fbdcdc', border: '#b8262a' },
+    brand: { fg: '#7c2d12', bg: '#fff7ed', border: '#ea580c' },
   },
 } as const;
 

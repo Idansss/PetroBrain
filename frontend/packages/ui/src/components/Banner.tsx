@@ -1,7 +1,7 @@
 import type { HTMLAttributes, ReactNode } from 'react';
 import clsx from 'clsx';
 
-export type BannerTone = 'safe' | 'info' | 'warn' | 'danger';
+export type BannerTone = 'safe' | 'info' | 'warn' | 'danger' | 'brand';
 
 export interface BannerProps extends HTMLAttributes<HTMLDivElement> {
   tone?: BannerTone;
@@ -14,6 +14,7 @@ const toneClasses: Record<BannerTone, string> = {
   info: 'bg-info-bg text-info-fg border-info-border dark:bg-info-fg/20 dark:text-info-bg dark:border-info-border/40',
   warn: 'bg-warn-bg text-warn-fg border-warn-border dark:bg-warn-fg/20 dark:text-warn-bg dark:border-warn-border/40',
   danger: 'bg-danger-bg text-danger-fg border-danger-border dark:bg-danger-fg/20 dark:text-danger-bg dark:border-danger-border/40',
+  brand: 'bg-brand-bg text-brand-fg border-brand-border dark:bg-brand-fg/20 dark:text-brand-bg dark:border-brand-border/40',
 };
 
 /**

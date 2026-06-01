@@ -112,7 +112,7 @@ export default function HomePage() {
         </header>
 
         <div className="mx-auto mt-10 max-w-3xl">
-          <Banner tone="info" title="DECISION SUPPORT ONLY">
+          <Banner tone="brand" title="DECISION SUPPORT ONLY">
             Verify all safety-critical numbers with the competent person before acting.
           </Banner>
         </div>

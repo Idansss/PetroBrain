@@ -471,7 +471,7 @@ function RegenerateIcon() {
 
 interface BannerSpec {
   key: string;
-  tone: 'safe' | 'info' | 'warn' | 'danger';
+  tone: 'safe' | 'info' | 'warn' | 'danger' | 'brand';
   title: string;
   body: string;
 }
@@ -481,7 +481,7 @@ function collectBanners(message: AssistantMessage, safetyToolResult: { result: u
   if (safetyToolResult && isObject(safetyToolResult.result) && typeof safetyToolResult.result['banner'] === 'string') {
     out.push({
       key: 'verification',
-      tone: 'info',
+      tone: 'brand',
       title: 'DECISION SUPPORT ONLY',
       body: safetyToolResult.result['banner'] as string,
     });
