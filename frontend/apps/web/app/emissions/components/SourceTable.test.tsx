@@ -34,7 +34,9 @@ describe('SourceTable', () => {
     expect(screen.getByText('FL-1')).toBeInTheDocument();
     expect(screen.getByText('FUG-2')).toBeInTheDocument();
     const t3 = screen.getByTestId('source-FL-1');
-    expect(within(t3).getByText('flaring')).toBeInTheDocument();
+    expect(within(t3).getByText('Flaring')).toBeInTheDocument();
+    expect(screen.getByText('Fugitive emissions')).toBeInTheDocument();
+    expect(screen.queryByText('fugitive_t2')).not.toBeInTheDocument();
     expect(within(t3).getByText('0.3835')).toBeInTheDocument();
     expect(within(t3).getByText('51.5517')).toBeInTheDocument();
   });

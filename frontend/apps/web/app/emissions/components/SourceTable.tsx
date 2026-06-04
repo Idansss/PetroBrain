@@ -50,8 +50,8 @@ export function SourceTable({ lines }: SourceTableProps) {
               data-testid={`source-${line.source_id}`}
               className={clsx(rowToneClass(line.tier))}
             >
-              <td className="px-3 py-2 font-mono text-xs text-neutral-800 dark:text-neutral-200">{line.source_id}</td>
-              <td className="px-3 py-2 text-neutral-700 dark:text-neutral-300">{line.source_type}</td>
+              <td className="px-3 py-2 text-xs font-semibold text-neutral-800 dark:text-neutral-200">{line.source_id}</td>
+              <td className="px-3 py-2 text-neutral-700 dark:text-neutral-300">{sourceTypeLabel(line.source_type)}</td>
               <td className="px-3 py-2">
                 <Badge tone={tierBadgeTone(line.tier)}>{line.tier}</Badge>
               </td>
@@ -89,4 +89,24 @@ export function tierBadgeTone(tier: string): 'safe' | 'warn' | 'danger' | 'neutr
 
 function fmt(n: number): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+}
+
+function sourceTypeLabel(type: string): string {
+  switch (type) {
+    case 'flaring':
+      return 'Flaring';
+    case 'venting':
+      return 'Venting';
+    case 'fugitive':
+    case 'fugitive_t2':
+    case 'fugitive_t3':
+      return 'Fugitive emissions';
+    case 'combustion':
+      return 'Combustion';
+    case 'purchased_power':
+      return 'Purchased power';
+    default:
+      if (type.startsWith('scope3_')) return 'Scope 3 emissions';
+      return 'Emission source';
+  }
 }
