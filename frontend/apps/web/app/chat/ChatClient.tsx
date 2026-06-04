@@ -463,6 +463,22 @@ export function ChatClient() {
   const pinnedToBottomRef = useRef(true);
   const lastMessageCount = useRef(messages.length);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+  // Composer height is dynamic (attachments, extended-mode chip, multi-line
+  // text) - measure it so the jump-to-latest button can sit a fixed gap
+  // ABOVE the composer instead of at a hardcoded offset that overlaps as
+  // the composer grows.
+  const composerWrapRef = useRef<HTMLDivElement | null>(null);
+  const [composerHeight, setComposerHeight] = useState(96);
+  useEffect(() => {
+    const el = composerWrapRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      const next = Math.round(entries[0]?.contentRect.height ?? 96);
+      setComposerHeight((prev) => (Math.abs(prev - next) < 1 ? prev : next));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -678,7 +694,8 @@ export function ChatClient() {
           <button
             type="button"
             onClick={scrollToLatest}
-            className="absolute bottom-28 left-1/2 z-30 flex h-12 w-12 -translate-x-1/2 items-center justify-center rounded-full border border-white/25 bg-neutral-950/85 text-white shadow-[0_18px_45px_-18px_rgba(15,23,42,0.9),inset_0_1px_0_rgba(255,255,255,0.24)] backdrop-blur transition hover:-translate-y-0.5 hover:bg-neutral-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 dark:border-white/15 dark:bg-neutral-100/15 dark:text-white dark:hover:bg-neutral-100/25"
+            style={{ bottom: composerHeight + 16 }}
+            className="absolute left-1/2 z-30 flex h-12 w-12 -translate-x-1/2 items-center justify-center rounded-full border border-white/25 bg-neutral-950/85 text-white shadow-[0_18px_45px_-18px_rgba(15,23,42,0.9),inset_0_1px_0_rgba(255,255,255,0.24)] backdrop-blur transition hover:-translate-y-0.5 hover:bg-neutral-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 dark:border-white/15 dark:bg-neutral-100/15 dark:text-white dark:hover:bg-neutral-100/25"
             aria-label="Jump to latest message"
             title="Jump to latest message"
           >
@@ -702,12 +719,14 @@ export function ChatClient() {
             {error}
           </div>
         ) : null}
-        <ChatComposer
-          onSubmit={send}
-          disabled={!token}
-          sending={sending}
-          onStop={stop}
-        />
+        <div ref={composerWrapRef}>
+          <ChatComposer
+            onSubmit={send}
+            disabled={!token}
+            sending={sending}
+            onStop={stop}
+          />
+        </div>
       </section>
       {canvasMessage ? (
         <CanvasPanel message={canvasMessage} onClose={closeCanvas} />
