@@ -83,13 +83,13 @@ export function ReportViewer({ report }: ReportViewerProps) {
 
       {report.tier_status.gaps_to_target.length > 0 ? (
         <Card title="Gaps to target tier">
-          <ul className="space-y-1 text-sm">
+          <ul className="space-y-2 text-sm">
             {report.tier_status.gaps_to_target.map((gap, i) => (
-              <li key={i} className="rounded-md border border-warn-border bg-warn-bg/40 p-2 dark:border-warn-border/40 dark:bg-warn-fg/20 dark:text-warn-bg">
-                <pre className="overflow-x-auto whitespace-pre-wrap text-xs">
-                  {JSON.stringify(gap, null, 2)}
-                </pre>
-              </li>
+              <TierGapItem
+                key={i}
+                gap={gap}
+                targetTier={report.tier_status.target_tier}
+              />
             ))}
           </ul>
         </Card>
@@ -116,6 +116,93 @@ export function ReportViewer({ report }: ReportViewerProps) {
       </Card>
     </section>
   );
+}
+
+function TierGapItem({ gap, targetTier }: { gap: unknown; targetTier: string }) {
+  const details = normaliseTierGap(gap, targetTier);
+  return (
+    <li className="rounded-md border border-warn-border bg-warn-bg/40 p-3 dark:border-warn-border/40 dark:bg-warn-fg/20 dark:text-warn-bg">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-neutral-900 dark:text-warn-bg">
+            {details.sourceLabel}
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-600 dark:text-warn-bg/80">
+            {details.sourceType}
+          </p>
+        </div>
+        <span className="rounded-full border border-warn-border/70 bg-white/70 px-2 py-0.5 text-xs font-medium text-neutral-700 dark:border-warn-bg/30 dark:bg-neutral-900/30 dark:text-warn-bg">
+          {details.currentTier} to {details.targetTier}
+        </span>
+      </div>
+      <p className="mt-2 text-sm text-neutral-700 dark:text-warn-bg">
+        {details.action}
+      </p>
+    </li>
+  );
+}
+
+function normaliseTierGap(gap: unknown, targetTier: string) {
+  if (!isRecord(gap)) {
+    return {
+      sourceLabel: 'Inventory source needs review',
+      sourceType: 'Source category unavailable',
+      currentTier: 'Current tier unknown',
+      targetTier,
+      action: `Review source data and calculation method needed to meet ${targetTier}.`,
+    };
+  }
+
+  const sourceId = readText(gap, 'source_id') ?? readText(gap, 'source') ?? 'Unlabelled source';
+  const sourceType = sourceTypeLabel(readText(gap, 'source_type'));
+  const currentTier = readText(gap, 'current_tier') ?? readText(gap, 'tier') ?? 'Current tier unknown';
+  const desiredTier = readText(gap, 'target_tier') ?? targetTier;
+  const action =
+    readText(gap, 'recommended_action') ??
+    readText(gap, 'action') ??
+    readText(gap, 'message') ??
+    defaultGapAction(sourceType, desiredTier);
+
+  return {
+    sourceLabel: `Source ${sourceId}`,
+    sourceType,
+    currentTier,
+    targetTier: desiredTier,
+    action,
+  };
+}
+
+function defaultGapAction(sourceType: string, targetTier: string): string {
+  if (targetTier === 'Tier 3') {
+    return `Add measurement-based activity data and QA records for this ${sourceType.toLowerCase()} source.`;
+  }
+  return `Add the missing activity data and method evidence required for ${targetTier}.`;
+}
+
+function sourceTypeLabel(value: string | null): string {
+  switch (value) {
+    case 'flaring':
+      return 'Flaring source';
+    case 'venting':
+      return 'Venting source';
+    case 'fugitive_t2':
+      return 'Fugitive emissions source';
+    case 'fugitive_t3':
+      return 'Measured fugitive emissions source';
+    case 'combustion':
+      return 'Combustion source';
+    default:
+      return 'Emission source';
+  }
+}
+
+function readText(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key];
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

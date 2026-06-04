@@ -48,10 +48,9 @@ export interface InventoryBuilderProps {
 /**
  * Pragmatic Phase-1 builder.
  *
- * Sources are entered as JSON - the underlying ``MRVRequest`` carries an
- * array of typed sources with shape-varying ``params``, and a proper
- * per-source-type wizard belongs to a later task. Engineers can paste
- * directly from the SOP / spreadsheet they own today.
+ * Sources are entered as structured text in Phase 1. A proper per-source-type
+ * wizard belongs to a later task; this keeps the current workflow compatible
+ * with data pasted from operator spreadsheets.
  */
 export function InventoryBuilder({
   defaultFacility = '',
@@ -101,7 +100,7 @@ export function InventoryBuilder({
   }
 
   return (
-    <Card title="Generate inventory" description="POST /emissions/inventory">
+    <Card title="Generate inventory" description="Build a filing-ready GHGEMP report from facility source data.">
       <form className="space-y-4" onSubmit={submit}>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <Input
@@ -154,12 +153,11 @@ export function InventoryBuilder({
 
         <div className="space-y-1">
           <label htmlFor="sources-json" className="text-sm font-medium text-neutral-700 dark:text-neutral-200">
-            Sources (JSON)
+            Emission sources
           </label>
           <p className="text-xs text-neutral-500 dark:text-neutral-400">
-            Array of <code className="font-mono">{'{source_id, source_type, params}'}</code>.
-            <code className="font-mono">source_type</code> is one of: flaring, venting, fugitive_t2,
-            fugitive_t3, combustion.
+            Paste the structured source list from your worksheet. Supported categories: flaring,
+            venting, fugitive emissions, measured fugitive emissions, and combustion.
           </p>
           <textarea
             id="sources-json"
@@ -172,7 +170,7 @@ export function InventoryBuilder({
           />
           {parseError ? (
             <p role="alert" className="text-xs text-danger-fg dark:text-danger-bg">
-              JSON parse error - {parseError}
+              Source list could not be read. Check the brackets, commas, and quotes, then try again.
             </p>
           ) : null}
         </div>
