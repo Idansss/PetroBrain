@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type ClipboardEvent,
   type DragEvent,
   type FormEvent,
   type KeyboardEvent,
@@ -394,6 +395,13 @@ export function ChatComposer({ onSubmit, disabled, sending, onStop }: ChatCompos
       try {
         if (kind === 'image') preview = await readAsDataURL(file);
         else if (kind === 'text') preview = await readAsText(file);
+        else if (kind === 'document') {
+          // PDFs / DOCX: read the bytes as base64 so the orchestrator can
+          // extract text in-process with pdfplumber / python-docx. Without
+          // this, the model only sees the filename and replies "I can't read
+          // the file".
+          preview = await readAsDataURL(file);
+        }
       } catch {
         // Don't drop the whole batch on one read failure - just attach a stub.
         preview = null;
@@ -468,6 +476,36 @@ export function ChatComposer({ onSubmit, disabled, sending, onStop }: ChatCompos
       e.preventDefault();
       submit(e as unknown as FormEvent);
     }
+  }
+
+  /**
+   * Accept pasted images (e.g. screenshots from the system snipping tool).
+   * Browsers expose clipboard images via ``clipboardData.items``; each item
+   * that is a file gets routed through the normal addFiles() path so it
+   * picks up the same size limits, MIME inspection, and upload counter as a
+   * dragged or picked file. We only call preventDefault when there's at
+   * least one file item, so a plain-text paste still lands in the textarea.
+   */
+  function onPaste(e: ClipboardEvent<HTMLTextAreaElement>) {
+    const items = e.clipboardData?.items;
+    if (!items || items.length === 0) return;
+    const files: File[] = [];
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i];
+      if (!item || item.kind !== 'file') continue;
+      const file = item.getAsFile();
+      if (!file) continue;
+      // Screenshots arrive as "image.png" or just "" - give them a clearer
+      // name so the chip / audit log isn't ambiguous later.
+      const named =
+        file.name && file.name !== 'image.png'
+          ? file
+          : new File([file], `pasted-${Date.now()}.png`, { type: file.type || 'image/png' });
+      files.push(named);
+    }
+    if (files.length === 0) return;
+    e.preventDefault();
+    void addFiles(files);
   }
 
   function applyAction(prompt: string) {
@@ -580,6 +618,7 @@ export function ChatComposer({ onSubmit, disabled, sending, onStop }: ChatCompos
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={onKeyDown}
+          onPaste={onPaste}
           placeholder="Ask a question grounded in your SOPs, or build a kill sheet…"
           className="scrollbar-hide max-h-40 min-h-[28px] resize-none border-0 bg-transparent px-2.5 py-1.5 text-[15px] leading-relaxed text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-0 dark:text-neutral-100 dark:placeholder:text-neutral-500"
           disabled={disabled}

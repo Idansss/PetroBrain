@@ -186,18 +186,18 @@ export function ChatClient() {
         convoId = newConversation(ownerKey, activeProject?.id ?? null);
       }
 
-      // Backend now receives attachments natively: images go up as base64
-      // vision content blocks, text-style files are inlined upstream, and
-      // documents become a model-visible note. We just send the raw text
-      // here - the orchestrator composes the multimodal user turn.
+      // Backend now receives attachments natively: images and documents
+      // (PDF/DOCX) go up as base64 so the orchestrator can render the image
+      // block or extract text in-process via pdfplumber/python-docx.
+      // Text-style files are inlined as UTF-8 upstream.
       const wireAttachments = attachments.map((a) => ({
         name: a.name,
         kind: a.kind,
         mime_type: a.mimeType,
-        // Strip the "data:image/...;base64," prefix; backend wants the
-        // raw base64 payload only.
+        // Backend wants the raw base64 payload only; strip the data-URL
+        // prefix for both image and document kinds.
         data:
-          a.kind === 'image' && a.preview
+          (a.kind === 'image' || a.kind === 'document') && a.preview
             ? a.preview.replace(/^data:[^;]+;base64,/, '')
             : a.kind === 'text'
               ? a.preview

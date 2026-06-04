@@ -163,6 +163,42 @@ class Turn:
 # under that with a guard so we don't surface a 4xx to the user mid-stream.
 _MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
+# One-shot chat-attachment document text gets this size cap so a pasted-in
+# 500-page PDF can't blow out the model's context. Anything larger should go
+# through Admin > Documents (which chunks + embeds it).
+_MAX_INLINE_DOC_CHARS = 200_000
+
+
+def _try_extract_document(name: str, base64_data: str) -> str | None:
+    """Decode base64 document bytes and return extracted text, or None on any
+    failure. Caps the result at ``_MAX_INLINE_DOC_CHARS`` so a huge PDF doesn't
+    overflow the prompt; the chunk-and-embed ingestion path is the right
+    answer for documents that large."""
+    import base64
+
+    try:
+        raw = base64.b64decode(base64_data, validate=False)
+    except Exception:  # noqa: BLE001
+        return None
+    if not raw:
+        return None
+    try:
+        from app.workers.extractors import extract_text, supported_extension
+    except ImportError:
+        return None
+    if not supported_extension(name):
+        return None
+    try:
+        text = extract_text(raw, name)
+    except Exception:  # noqa: BLE001
+        return None
+    text = (text or "").strip()
+    if not text:
+        return None
+    if len(text) > _MAX_INLINE_DOC_CHARS:
+        text = text[:_MAX_INLINE_DOC_CHARS] + "\n\n[...truncated; ingest via Documents tab for full search]"
+    return text
+
 
 def _build_user_message_content(
     user_text: str, attachments: list[Any] | None
@@ -228,6 +264,22 @@ def _build_user_message_content(
             note_lines.append(f"[image attached: {name}]")
         elif kind == "text" and data:
             inlined_text.append(f"--- {name} ---\n{data}\n--- end {name} ---")
+        elif kind == "document" and data:
+            # The frontend ships PDFs/DOCXs as base64 in ``data``. Extract text
+            # in-process with pdfplumber / python-docx (already deps); the
+            # extracted body is inlined the same way text uploads are, so the
+            # model can answer questions about the document without needing a
+            # full ingest cycle. One-shot only - not stored in the vectorstore.
+            extracted = _try_extract_document(name, data)
+            if extracted:
+                inlined_text.append(
+                    f"--- {name} (extracted) ---\n{extracted}\n--- end {name} ---"
+                )
+            else:
+                note_lines.append(
+                    f"[document attached: {name} - could not extract text; "
+                    f"ingest via the Documents tab if you need it searchable]"
+                )
         else:
             note_lines.append(
                 f"[document attached: {name} - ingest via the Documents tab "
