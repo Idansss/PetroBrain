@@ -203,7 +203,7 @@ describe('Message - kill-sheet stream', () => {
 
     render(<Message message={message} />);
 
-    expect(screen.getByText(/could not produce a readable answer/i)).toBeInTheDocument();
+    expect(screen.getByText(/response was interrupted/i)).toBeInTheDocument();
   });
 
   it('can read an assistant response aloud through the browser voice control', async () => {

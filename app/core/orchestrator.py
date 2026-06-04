@@ -991,7 +991,10 @@ def _safe_answer_text(text: str | None, tool_results: list[dict[str, Any]]) -> s
     if fallback:
         return fallback
     if tool_results:
-        return "I completed the requested check, but could not produce a readable summary. Please try again."
+        # Matches the frontend's interruption framing so the two layers
+        # speak the same way to the user when the model returns nothing
+        # readable. See ChatClient.tsx::fallbackCompletedAnswer.
+        return "The response was interrupted after the tools returned. Please retry to get the full answer."
     return ""
 
 

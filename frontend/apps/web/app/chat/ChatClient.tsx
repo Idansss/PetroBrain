@@ -990,10 +990,24 @@ function mergeToolResult(
   return next;
 }
 
+/**
+ * Last-resort copy for an assistant bubble that finalized without text.
+ *
+ * The backend's _safe_answer_text(...) in app.core.orchestrator already turns
+ * "tools ran but the model produced no prose" into a useful summary before
+ * the `done` event leaves the server. So this function only fires when
+ * something further downstream went wrong - SSE truncated mid-stream, a
+ * proxy buffered out the final tokens, an older orchestrator skipped the
+ * safe path. In all of those cases the truthful framing is "the response
+ * was interrupted", not "I couldn't answer" (the latter suggests the model
+ * failed to respond, when in fact our pipeline dropped it).
+ *
+ * Keeping this honest helps the user retry instead of rephrasing.
+ */
 function fallbackCompletedAnswer(toolResults: unknown[]): string {
   const hasToolWork = Array.isArray(toolResults) && toolResults.length > 0;
-  if (!hasToolWork) {
-    return "I couldn't finish a readable answer. Please try again.";
+  if (hasToolWork) {
+    return 'The response was interrupted after the tools returned. Please retry to get the full answer.';
   }
-  return "I completed the check, but could not produce a readable answer. Please try again.";
+  return 'The response was interrupted before it finished. Please retry.';
 }
