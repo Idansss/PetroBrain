@@ -175,6 +175,37 @@ describe('Message - kill-sheet stream', () => {
     expect(screen.queryByText(/private search terms/i)).not.toBeInTheDocument();
   });
 
+  it('does not render an empty assistant bubble when a tool-backed turn finishes blank', () => {
+    const message = drive([
+      {
+        event: 'tool_result',
+        data: {
+          tool: 'web_search',
+          result: { results: [{ title: 'Source', url: 'https://example.com' }] },
+        },
+      },
+      {
+        event: 'done',
+        data: {
+          answer: '   ',
+          tool_results: [
+            {
+              tool: 'web_search',
+              input: { query: 'private search terms' },
+              result: { results: [{ title: 'Source', url: 'https://example.com' }] },
+            },
+          ],
+          flags: [],
+          audit: {},
+        },
+      },
+    ]) as AssistantMessage;
+
+    render(<Message message={message} />);
+
+    expect(screen.getByText(/could not produce a readable answer/i)).toBeInTheDocument();
+  });
+
   it('can read an assistant response aloud through the browser voice control', async () => {
     const user = userEvent.setup();
     const speak = vi.fn();

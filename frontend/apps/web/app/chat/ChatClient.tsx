@@ -890,9 +890,10 @@ export function applyEvent(
         // Only spread turnId when we actually got one - strict optional-
         // property typing rejects an explicit `undefined` assignment.
         const resolvedTurnId = event.data.turn_id ?? m.turnId;
+        const finalText = event.data.answer?.trim() ? event.data.answer : m.text;
         const base = {
           ...m,
-          text: event.data.answer || m.text,
+          text: finalText.trim() ? finalText : fallbackCompletedAnswer(event.data.tool_results ?? m.toolResults),
           toolResults: (event.data.tool_results as ToolResult[]) ?? m.toolResults,
           evidencePack: event.data.evidence_pack ?? m.evidencePack,
           flags: event.data.flags ?? m.flags,
@@ -918,4 +919,12 @@ function mergeToolResult(
   const existing = next[idx]!;
   next[idx] = { tool: existing.tool, input: existing.input, result: event.result };
   return next;
+}
+
+function fallbackCompletedAnswer(toolResults: unknown[]): string {
+  const hasToolWork = Array.isArray(toolResults) && toolResults.length > 0;
+  if (!hasToolWork) {
+    return "I couldn't finish a readable answer. Please try again.";
+  }
+  return "I completed the check, but could not produce a readable answer. Please try again.";
 }

@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from app.api import deps, routes_chat
 from app.core.audit import AuditLogger
 from app.core.llm_service import LLMResponse
-from app.core.orchestrator import Orchestrator
+from app.core.orchestrator import Orchestrator, TOOL_REGISTRY
 from app.db.audit_events_repository import LocalJsonAuditEventsRepository
 from app.main import app
 from tests.auth_helpers import auth_headers, jwt_settings
@@ -146,6 +146,51 @@ def test_stream_chat_emits_tool_call_tool_result_tokens_done(monkeypatch):
     assert events[1][1]["result"]["kill_mud_weight_ppg"] == 10.37
     assert events[-1][1]["tool_results"][0]["tool"] == "build_kill_sheet"
     assert events[-1][1]["flags"] == []
+
+
+def test_stream_chat_summarizes_web_results_when_final_answer_is_empty(monkeypatch):
+    schema, _ = TOOL_REGISTRY["web_search"]
+    monkeypatch.setitem(
+        TOOL_REGISTRY,
+        "web_search",
+        (
+            schema,
+            lambda payload: {
+                "query": payload["query"],
+                "provider": "test",
+                "results": [
+                    {
+                        "title": "Metropole Petroleum Limited",
+                        "url": "https://example.com/metropole",
+                        "snippet": "Metropole Petroleum Limited is listed as an oil and gas company with public corporate references.",
+                    }
+                ],
+            },
+        ),
+    )
+    first = LLMResponse(
+        text="",
+        tool_calls=[{
+            "name": "web_search",
+            "input": {"query": "Metropole Petroleum"},
+            "id": "tool-web-1",
+        }],
+        usage={"input": 10, "output": 5},
+        model="fake-model",
+    )
+    llm = StreamingLLM(stream_tokens=[], complete_responses=[first])
+    monkeypatch.setattr(routes_chat, "_orch", Orchestrator(llm=llm))
+
+    events = stream_chat({
+        "message": "what do you know about metropole petroleum",
+        "module": "general",
+    })
+
+    names = [name for name, _ in events]
+    assert names == ["tool_call", "tool_result", "citation", "token", "done"]
+    assert "I found current public sources" in events[-2][1]["text"]
+    assert "Metropole Petroleum Limited" in events[-2][1]["text"]
+    assert events[-1][1]["answer"] == events[-2][1]["text"]
 
 
 def test_stream_chat_guardrail_refusal_emits_flag_token_done(monkeypatch):

@@ -558,7 +558,8 @@ class Orchestrator:
                     ),
                 )
 
-        answer = prefix + (resp.text or "")
+        answer_text = _safe_answer_text(resp.text, tool_results)
+        answer = prefix + answer_text
 
         # 7. post-guardrails
         safety_critical = any(
@@ -763,7 +764,9 @@ class Orchestrator:
                         thinking_mode=thinking_mode,
                     ):
                         yield event
-                    answer_text = final["text"]
+                    answer_text = _safe_answer_text(final["text"], tool_results)
+                    if not final["text"].strip() and answer_text:
+                        yield {"event": "token", "data": {"text": answer_text}}
                     model = final["model"]
                     usage = final["usage"]
                 elif answer_text:
@@ -802,7 +805,7 @@ class Orchestrator:
             }}
             return
 
-        answer = prefix + (answer_text or "")
+        answer = prefix + _safe_answer_text(answer_text, tool_results)
         safety_critical = any(
             tr["result"].get("safety_critical") or "banner" in tr["result"]
             for tr in tool_results
@@ -971,6 +974,69 @@ def _web_search_citations(tool_name: Any, result: Any) -> list[dict[str, Any]]:
             "url": url,
         })
     return out
+
+
+def _safe_answer_text(text: str | None, tool_results: list[dict[str, Any]]) -> str:
+    """Never finish a tool-backed turn with an empty answer.
+
+    Some providers can return a valid final message with citations/tool output
+    but no prose after a web-search tool result. The UI then has sources but no
+    answer. Build a conservative summary from the returned snippets rather than
+    exposing an empty assistant bubble.
+    """
+    clean = (text or "").strip()
+    if clean:
+        return text or ""
+    fallback = _fallback_answer_from_web_results(tool_results)
+    if fallback:
+        return fallback
+    if tool_results:
+        return "I completed the requested check, but could not produce a readable summary. Please try again."
+    return ""
+
+
+def _fallback_answer_from_web_results(tool_results: list[dict[str, Any]]) -> str:
+    rows: list[dict[str, Any]] = []
+    for tr in tool_results:
+        if tr.get("tool") != "web_search":
+            continue
+        result = tr.get("result")
+        if not isinstance(result, dict):
+            continue
+        raw_rows = result.get("results")
+        if isinstance(raw_rows, list):
+            rows.extend(row for row in raw_rows if isinstance(row, dict))
+
+    if not rows:
+        return ""
+
+    bullets: list[str] = []
+    for row in rows[:5]:
+        title = _clean_summary_part(row.get("title")) or "Source"
+        snippet = _clean_summary_part(row.get("snippet"))
+        if snippet:
+            bullets.append(f"- {title}: {_truncate_words(snippet, 34)}")
+        else:
+            bullets.append(f"- {title}: this source was returned for the question, but no snippet was available.")
+
+    return (
+        "I found current public sources. Based on the returned snippets:\n\n"
+        + "\n".join(bullets)
+        + "\n\nVerify company identity, ownership, and operating status against the linked sources before relying on it."
+    )
+
+
+def _clean_summary_part(value: Any) -> str:
+    if value is None:
+        return ""
+    return " ".join(str(value).split())
+
+
+def _truncate_words(value: str, max_words: int) -> str:
+    words = value.split()
+    if len(words) <= max_words:
+        return value
+    return " ".join(words[:max_words]).rstrip(".,;:") + "..."
 
 
 def _tool_input_as_dict(value: Any) -> dict[str, Any]:
