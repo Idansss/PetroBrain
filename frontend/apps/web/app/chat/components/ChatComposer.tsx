@@ -27,6 +27,54 @@ const ACCEPTED = '.txt,.md,.markdown,.csv,.json,.pdf,.docx,image/*';
 const MAX_BYTES = 8 * 1024 * 1024; // 8 MB per file
 const MAX_FILES = 6;
 
+interface SpeechRecognitionAlternativeLike {
+  transcript: string;
+}
+
+interface SpeechRecognitionResultLike {
+  isFinal: boolean;
+  [index: number]: SpeechRecognitionAlternativeLike | undefined;
+}
+
+interface SpeechRecognitionEventLike {
+  results: ArrayLike<SpeechRecognitionResultLike>;
+}
+
+interface SpeechRecognitionErrorEventLike {
+  error?: string;
+}
+
+interface BrowserSpeechRecognition {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onend: (() => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  abort: () => void;
+  start: () => void;
+  stop: () => void;
+}
+
+type SpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
+
+function getSpeechRecognitionConstructor(): SpeechRecognitionConstructor | null {
+  if (typeof window === 'undefined') return null;
+  const speechWindow = window as Window & {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  };
+  return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition ?? null;
+}
+
+function combineVoiceText(base: string, transcript: string): string {
+  const spoken = transcript.trimStart();
+  if (!spoken) return base;
+  if (!base.trim()) return spoken;
+  const separator = /[\s\n]$/.test(base) ? '' : ' ';
+  return `${base}${separator}${spoken}`;
+}
+
 export interface ChatComposerProps {
   onSubmit: (text: string, attachments: MessageAttachment[]) => void;
   /** Hard-disabled (no auth / no backend). Distinct from ``sending`` so the user
@@ -210,8 +258,12 @@ export function ChatComposer({ onSubmit, disabled, sending, onStop }: ChatCompos
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [voiceSupported, setVoiceSupported] = useState(false);
+  const [listening, setListening] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const voiceBaseRef = useRef('');
 
   // Drain any pending prompt the user picked from the Customize directory.
   // Runs once on mount and clears the store so refresh doesn't replay it.
@@ -239,6 +291,46 @@ export function ChatComposer({ onSubmit, disabled, sending, onStop }: ChatCompos
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  useEffect(() => {
+    const Recognition = getSpeechRecognitionConstructor();
+    if (!Recognition) return;
+
+    const recognition = new Recognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    recognition.onresult = (event) => {
+      let finalText = '';
+      let interimText = '';
+      for (let i = 0; i < event.results.length; i += 1) {
+        const result = event.results[i];
+        const transcript = result?.[0]?.transcript ?? '';
+        if (result?.isFinal) finalText += transcript;
+        else interimText += transcript;
+      }
+      setValue(combineVoiceText(voiceBaseRef.current, `${finalText}${interimText}`));
+    };
+    recognition.onerror = (event) => {
+      setListening(false);
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        setError('Microphone access was blocked.');
+      } else if (event.error && event.error !== 'no-speech' && event.error !== 'aborted') {
+        setError('Voice input stopped. Try again when you are ready.');
+      }
+    };
+    recognition.onend = () => setListening(false);
+    recognitionRef.current = recognition;
+    setVoiceSupported(true);
+
+    return () => {
+      recognition.onend = null;
+      recognition.onerror = null;
+      recognition.onresult = null;
+      recognition.abort();
+      recognitionRef.current = null;
+    };
   }, []);
 
   // Browser screen capture into the attachments tray. User picks a screen,
@@ -353,6 +445,10 @@ export function ChatComposer({ onSubmit, disabled, sending, onStop }: ChatCompos
     // Block submit while another turn is streaming so the user's draft isn't
     // silently cleared and the parent's send() no-op isn't surprising.
     if ((!trimmed && attachments.length === 0) || disabled || sending) return;
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+    }
     onSubmit(trimmed, attachments);
     setValue('');
     setAttachments([]);
@@ -377,6 +473,26 @@ export function ChatComposer({ onSubmit, disabled, sending, onStop }: ChatCompos
   function applyAction(prompt: string) {
     setValue((v) => (v ? `${v}\n\n${prompt}` : prompt));
     textareaRef.current?.focus();
+  }
+
+  function toggleVoiceInput() {
+    const recognition = recognitionRef.current;
+    if (!recognition || disabled || sending) return;
+    setError(null);
+    if (listening) {
+      recognition.stop();
+      setListening(false);
+      return;
+    }
+    voiceBaseRef.current = value;
+    try {
+      recognition.start();
+      setListening(true);
+      textareaRef.current?.focus();
+    } catch {
+      setListening(false);
+      setError('Voice input could not start. Try again in a moment.');
+    }
   }
 
   const canSend = (value.trim().length > 0 || attachments.length > 0) && !disabled;
@@ -491,6 +607,34 @@ export function ChatComposer({ onSubmit, disabled, sending, onStop }: ChatCompos
               onChange={setThinkingMode}
               disabled={disabled}
             />
+            {voiceSupported ? (
+              <button
+                type="button"
+                onClick={toggleVoiceInput}
+                disabled={disabled || sending}
+                aria-label={listening ? 'Stop voice input' : 'Start voice input'}
+                title={listening ? 'Stop voice input' : 'Start voice input'}
+                className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
+                  listening
+                    ? 'border-primary-300 bg-primary-50 text-primary-700 shadow-[0_0_0_3px_rgba(234,88,12,0.12)] dark:border-primary-600 dark:bg-primary-900/30 dark:text-primary-200'
+                    : 'border-neutral-200/80 bg-white text-neutral-600 hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:border-primary-600 dark:hover:bg-primary-900/30 dark:hover:text-primary-300'
+                }`}
+              >
+                <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden>
+                  <path
+                    d="M10 12.5a3 3 0 003-3v-4a3 3 0 00-6 0v4a3 3 0 003 3z"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                  />
+                  <path
+                    d="M4.5 9.5a5.5 5.5 0 0011 0M10 15v2.5M7.5 17.5h5"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+            ) : null}
           </div>
 
           {sending ? (

@@ -1,5 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { applyEvent } from '../ChatClient';
 import type { AssistantMessage, Message as MessageType } from '@/lib/chat/types';
@@ -8,6 +9,10 @@ import type { StreamEvent } from '@/lib/chat/streamChat';
 import { Message } from './Message';
 
 const ASSISTANT_ID = 'assistant-1';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function blankAssistant(): AssistantMessage {
   return {
@@ -168,6 +173,44 @@ describe('Message - kill-sheet stream', () => {
     expect(screen.queryByText('web_search')).not.toBeInTheDocument();
     expect(screen.queryByText(/query:/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/private search terms/i)).not.toBeInTheDocument();
+  });
+
+  it('can read an assistant response aloud through the browser voice control', async () => {
+    const user = userEvent.setup();
+    const speak = vi.fn();
+    const cancel = vi.fn();
+    class MockSpeechSynthesisUtterance {
+      text: string;
+      rate = 1;
+      onend: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+
+      constructor(text: string) {
+        this.text = text;
+      }
+    }
+    vi.stubGlobal('SpeechSynthesisUtterance', MockSpeechSynthesisUtterance);
+    Object.defineProperty(window, 'speechSynthesis', {
+      configurable: true,
+      value: { speak, cancel },
+    });
+
+    const message: AssistantMessage = {
+      ...blankAssistant(),
+      text: 'Confirm the pressure trend before changing the choke.',
+      streaming: false,
+    };
+
+    render(<Message message={message} />);
+
+    await user.click(screen.getByRole('button', { name: 'Read aloud' }));
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(speak).toHaveBeenCalledTimes(1);
+    expect(speak.mock.calls[0]?.[0]).toMatchObject({
+      text: 'Confirm the pressure trend before changing the choke.',
+      rate: 0.95,
+    });
   });
 
   it('renders a guardrail refusal banner when a safety_bypass flag arrives', () => {

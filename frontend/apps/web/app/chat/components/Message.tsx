@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 
 import { Banner, Badge, Logo } from '@petrobrain/ui';
@@ -372,6 +372,20 @@ interface AssistantToolbarProps {
 function AssistantToolbar({ text, messageId, onRegenerate }: AssistantToolbarProps) {
   const [vote, setVote] = useState<'up' | 'down' | null>(null);
   const [copied, setCopied] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const canReadAloud =
+    typeof window !== 'undefined' &&
+    'speechSynthesis' in window &&
+    typeof SpeechSynthesisUtterance !== 'undefined';
+
+  useEffect(() => {
+    return () => {
+      if (utteranceRef.current && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
 
   async function copy() {
     try {
@@ -381,6 +395,30 @@ function AssistantToolbar({ text, messageId, onRegenerate }: AssistantToolbarPro
     } catch {
       // Clipboard permission missing in some contexts - silently no-op.
     }
+  }
+
+  function readAloud() {
+    if (!canReadAloud) return;
+    if (speaking) {
+      window.speechSynthesis.cancel();
+      utteranceRef.current = null;
+      setSpeaking(false);
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 0.95;
+    utterance.onend = () => {
+      utteranceRef.current = null;
+      setSpeaking(false);
+    };
+    utterance.onerror = () => {
+      utteranceRef.current = null;
+      setSpeaking(false);
+    };
+    window.speechSynthesis.cancel();
+    utteranceRef.current = utterance;
+    setSpeaking(true);
+    window.speechSynthesis.speak(utterance);
   }
 
   return (
@@ -395,6 +433,15 @@ function AssistantToolbar({ text, messageId, onRegenerate }: AssistantToolbarPro
       >
         {copied ? <CheckIcon /> : <CopyIcon />}
       </IconButton>
+      {canReadAloud ? (
+        <IconButton
+          label={speaking ? 'Stop reading' : 'Read aloud'}
+          onClick={readAloud}
+          active={speaking}
+        >
+          {speaking ? <StopAudioIcon /> : <SpeakerIcon />}
+        </IconButton>
+      ) : null}
       <IconButton
         label={vote === 'up' ? 'Remove upvote' : 'Good response'}
         onClick={() => setVote((v) => (v === 'up' ? null : 'up'))}
@@ -460,6 +507,39 @@ function CheckIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
       <path d="M4 10.5L8 14.5L16 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function SpeakerIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
+      <path
+        d="M4 8.5v3h3l4 3.5v-10L7 8.5H4z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M14 7a4 4 0 010 6M16 5a7 7 0 010 10"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function StopAudioIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
+      <path
+        d="M4 8.5v3h3l4 3.5v-10L7 8.5H4z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path d="M14 7l3 6M17 7l-3 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }
