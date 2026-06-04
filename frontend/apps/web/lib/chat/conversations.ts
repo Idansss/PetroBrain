@@ -15,6 +15,9 @@ export interface Conversation {
   messages: Message[];
   /** When non-null, this chat belongs to a project workspace. */
   projectId?: string | null;
+  pinned?: boolean;
+  archived?: boolean;
+  groupMembers?: string[];
   createdAt: number;
   updatedAt: number;
 }
@@ -28,6 +31,9 @@ interface ConversationsState {
   selectConversation: (id: string | null) => void;
   deleteConversation: (id: string) => void;
   renameConversation: (id: string, title: string) => void;
+  pinConversation: (id: string, pinned: boolean) => void;
+  archiveConversation: (id: string, archived: boolean) => void;
+  setGroupMembers: (id: string, members: string[]) => void;
   setMessages: (
     id: string,
     messages: Message[],
@@ -66,6 +72,9 @@ export const useConversationsStore = create<ConversationsState>()(
           title: 'New chat',
           messages: [],
           projectId: projectId ?? null,
+          pinned: false,
+          archived: false,
+          groupMembers: [],
           createdAt: now,
           updatedAt: now,
         };
@@ -102,6 +111,44 @@ export const useConversationsStore = create<ConversationsState>()(
         });
       },
 
+      pinConversation: (id, pinned) => {
+        set((s) => {
+          const existing = s.conversations[id];
+          if (!existing) return s;
+          const next = { ...existing, pinned, updatedAt: Date.now() };
+          return {
+            conversations: { ...s.conversations, [id]: next },
+            order: pinned ? [id, ...s.order.filter((x) => x !== id)] : s.order,
+          };
+        });
+      },
+
+      archiveConversation: (id, archived) => {
+        set((s) => {
+          const existing = s.conversations[id];
+          if (!existing) return s;
+          const next = { ...existing, archived, updatedAt: Date.now() };
+          const activeId = archived && s.activeId === id ? null : s.activeId;
+          return {
+            conversations: { ...s.conversations, [id]: next },
+            activeId,
+          };
+        });
+      },
+
+      setGroupMembers: (id, members) => {
+        set((s) => {
+          const existing = s.conversations[id];
+          if (!existing) return s;
+          return {
+            conversations: {
+              ...s.conversations,
+              [id]: { ...existing, groupMembers: members, updatedAt: Date.now() },
+            },
+          };
+        });
+      },
+
       setMessages: (id, messages, ownerKey, projectId = null) => {
         set((s) => {
           const existing = s.conversations[id];
@@ -113,6 +160,9 @@ export const useConversationsStore = create<ConversationsState>()(
               title: 'New chat',
               messages,
               projectId: projectId ?? null,
+              pinned: false,
+              archived: false,
+              groupMembers: [],
               createdAt: now,
               updatedAt: now,
             };

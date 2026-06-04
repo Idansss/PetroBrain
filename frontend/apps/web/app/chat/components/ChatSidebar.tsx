@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import clsx from 'clsx';
 
 import { Badge, Button, Logo } from '@petrobrain/ui';
@@ -11,6 +11,7 @@ import { ownerKeyOf, useConversationsStore } from '@/lib/chat/conversations';
 import { useProjectsStore } from '@/lib/chat/projects';
 import { useSettingsStore } from '@/lib/chat/settings';
 import { useChatStore } from '@/lib/chat/store';
+import type { Message, MessageAttachment } from '@/lib/chat/types';
 
 const NAV: {
   href: '/chat' | '/projects' | '/customize' | '/emissions' | '/admin/documents';
@@ -95,6 +96,10 @@ interface Conversation {
   ownerKey: string;
   title: string;
   updatedAt: number;
+  pinned?: boolean;
+  archived?: boolean;
+  groupMembers?: string[];
+  messages?: Message[];
   snippet?: string | null;
 }
 
@@ -103,6 +108,8 @@ interface Conversation {
  * Today · Yesterday · Previous 7 Days · Previous 30 Days · Older.
  */
 function groupByRecency(items: Conversation[]): Array<{ label: string; rows: Conversation[] }> {
+  const pinned = items.filter((item) => item.pinned);
+  const unpinned = items.filter((item) => !item.pinned);
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const startOfYesterday = startOfToday - 24 * 3600 * 1000;
@@ -117,11 +124,12 @@ function groupByRecency(items: Conversation[]): Array<{ label: string; rows: Con
     { label: 'Older', rows: [], floor: -Infinity },
   ];
 
-  for (const item of items) {
+  for (const item of unpinned) {
     const bucket = buckets.find((b) => item.updatedAt >= b.floor)!;
     bucket.rows.push(item);
   }
-  return buckets.filter((b) => b.rows.length > 0).map(({ label, rows }) => ({ label, rows }));
+  const recency = buckets.filter((b) => b.rows.length > 0).map(({ label, rows }) => ({ label, rows }));
+  return pinned.length > 0 ? [{ label: 'Pinned', rows: pinned }, ...recency] : recency;
 }
 
 function ConversationsList() {
@@ -134,11 +142,18 @@ function ConversationsList() {
   const selectConversation = useConversationsStore((s) => s.selectConversation);
   const deleteConversation = useConversationsStore((s) => s.deleteConversation);
   const renameConversation = useConversationsStore((s) => s.renameConversation);
+  const pinConversation = useConversationsStore((s) => s.pinConversation);
+  const archiveConversation = useConversationsStore((s) => s.archiveConversation);
+  const setGroupMembers = useConversationsStore((s) => s.setGroupMembers);
 
   const [query, setQuery] = useState('');
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [filesFor, setFilesFor] = useState<string | null>(null);
+  const [groupFor, setGroupFor] = useState<string | null>(null);
+  const [groupDraft, setGroupDraft] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -161,6 +176,7 @@ function ConversationsList() {
         (c): c is NonNullable<typeof c> =>
           c != null &&
           c.ownerKey === ownerKey &&
+          Boolean(c.archived) === showArchived &&
           (activeProjectId ? c.projectId === activeProjectId : !c.projectId),
       );
     if (!query.trim()) return rows.map((c) => ({ ...c, snippet: null as string | null }));
@@ -187,7 +203,7 @@ function ConversationsList() {
       if (snippet) matches.push({ ...c, snippet });
     }
     return matches;
-  }, [conversations, order, ownerKey, query, activeProjectId]);
+  }, [conversations, order, ownerKey, query, activeProjectId, showArchived]);
 
   const grouped = useMemo(() => groupByRecency(visible), [visible]);
 
@@ -201,6 +217,28 @@ function ConversationsList() {
     renameConversation(id, draft);
     setRenaming(null);
   }
+
+  function openGroupDialog(id: string) {
+    const convo = conversations[id];
+    setGroupDraft((convo?.groupMembers ?? []).join(', '));
+    setGroupFor(id);
+    setOpenMenu(null);
+  }
+
+  function commitGroup() {
+    if (!groupFor) return;
+    const members = groupDraft
+      .split(/[,\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    setGroupMembers(groupFor, Array.from(new Set(members)));
+    setGroupFor(null);
+    setGroupDraft('');
+  }
+
+  const fileConversation = filesFor ? conversations[filesFor] : null;
+  const uploadedFiles = collectChatFiles(fileConversation);
+  const groupConversation = groupFor ? conversations[groupFor] : null;
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2.5">
@@ -233,12 +271,28 @@ function ConversationsList() {
         ) : null}
       </div>
 
+      <button
+        type="button"
+        onClick={() => setShowArchived((value) => !value)}
+        className={clsx(
+          'flex h-8 items-center justify-between rounded-xl border px-2.5 text-xs font-semibold transition-all',
+          showArchived
+            ? 'border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-700/40 dark:bg-primary-900/30 dark:text-primary-200'
+            : 'border-neutral-200/70 bg-white/70 text-neutral-500 hover:border-primary-300 hover:text-primary-700 dark:border-neutral-800/70 dark:bg-neutral-900/60 dark:text-neutral-400 dark:hover:border-primary-600 dark:hover:text-primary-300',
+        )}
+      >
+        <span>{showArchived ? 'Showing archived chats' : 'Archived chats'}</span>
+        <span>{showArchived ? 'Hide' : 'View'}</span>
+      </button>
+
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
         {grouped.length === 0 ? (
           <p className="px-1 py-2 text-xs leading-relaxed text-neutral-400 dark:text-neutral-500">
             {query
               ? 'No chats match that search.'
-              : 'No chats yet. Send a message or hit + above to start one.'}
+              : showArchived
+                ? 'No archived chats.'
+                : 'No chats yet. Send a message or hit + above to start one.'}
           </p>
         ) : (
           grouped.map((bucket) => (
@@ -283,6 +337,20 @@ function ConversationsList() {
                           title={c.title}
                         >
                           <span className="block truncate">{c.title}</span>
+                          {c.pinned || (c.groupMembers?.length ?? 0) > 0 ? (
+                            <span className="mt-0.5 flex items-center gap-1">
+                              {c.pinned ? (
+                                <span className="rounded-full bg-primary-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
+                                  Pinned
+                                </span>
+                              ) : null}
+                              {(c.groupMembers?.length ?? 0) > 0 ? (
+                                <span className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+                                  Group
+                                </span>
+                              ) : null}
+                            </span>
+                          ) : null}
                           {c.snippet ? (
                             <span className="block truncate text-[11px] font-normal text-neutral-500 dark:text-neutral-400">
                               {c.snippet}
@@ -310,12 +378,41 @@ function ConversationsList() {
                       {isMenuOpen ? (
                         <div
                           ref={menuRef}
-                          className="absolute right-1 top-9 z-40 w-36 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-[0_18px_40px_-12px_rgba(15,23,42,0.18),0_4px_10px_-2px_rgba(15,23,42,0.08)] dark:border-neutral-700 dark:bg-neutral-900"
+                          className="absolute right-1 top-9 z-40 w-64 overflow-hidden rounded-3xl border border-neutral-200 bg-white py-2 shadow-[0_24px_60px_-18px_rgba(15,23,42,0.32),0_8px_18px_-8px_rgba(15,23,42,0.18)] dark:border-neutral-700 dark:bg-neutral-900"
                         >
+                          <ConversationAction
+                            icon="group"
+                            label={(c.groupMembers?.length ?? 0) > 0 ? 'Manage group chat' : 'Start a group chat'}
+                            onClick={() => openGroupDialog(c.id)}
+                          />
+                          <ConversationAction
+                            icon="files"
+                            label="View files in chat"
+                            onClick={() => {
+                              setFilesFor(c.id);
+                              setOpenMenu(null);
+                            }}
+                          />
+                          <ConversationAction
+                            icon="pin"
+                            label={c.pinned ? 'Unpin chat' : 'Pin chat'}
+                            onClick={() => {
+                              pinConversation(c.id, !c.pinned);
+                              setOpenMenu(null);
+                            }}
+                          />
+                          <ConversationAction
+                            icon="archive"
+                            label={showArchived ? 'Unarchive' : 'Archive'}
+                            onClick={() => {
+                              archiveConversation(c.id, !showArchived);
+                              setOpenMenu(null);
+                            }}
+                          />
                           <button
                             type="button"
                             onClick={() => startRename(c.id, c.title)}
-                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-neutral-700 hover:bg-primary-50 hover:text-primary-700 dark:text-neutral-200 dark:hover:bg-primary-900/30 dark:hover:text-primary-200"
+                            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-medium text-neutral-700 hover:bg-primary-50 hover:text-primary-700 dark:text-neutral-200 dark:hover:bg-primary-900/30 dark:hover:text-primary-200"
                           >
                             <svg width="12" height="12" viewBox="0 0 20 20" fill="none">
                               <path
@@ -333,9 +430,9 @@ function ConversationsList() {
                               deleteConversation(c.id);
                               setOpenMenu(null);
                             }}
-                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-danger-fg hover:bg-danger-bg/70 dark:text-danger-bg dark:hover:bg-danger-fg/20"
+                            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
                           >
-                            <svg width="12" height="12" viewBox="0 0 20 20" fill="none">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                               <path
                                 d="M5 6h10M8 6V4h4v2m-6 0v10h8V6"
                                 stroke="currentColor"
@@ -356,8 +453,194 @@ function ConversationsList() {
           ))
         )}
       </div>
+
+      {filesFor ? (
+        <SidebarDialog
+          title="Files in chat"
+          description={fileConversation?.title ?? 'Uploaded files'}
+          onClose={() => setFilesFor(null)}
+        >
+          {uploadedFiles.length === 0 ? (
+            <p className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-4 text-sm text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400">
+              No files have been uploaded in this chat yet.
+            </p>
+          ) : (
+            <ul className="max-h-72 space-y-2 overflow-y-auto pr-1">
+              {uploadedFiles.map((file) => (
+                <li
+                  key={`${file.messageIndex}-${file.id}`}
+                  className="flex items-center gap-3 rounded-xl border border-neutral-200 bg-white p-2.5 dark:border-neutral-800 dark:bg-neutral-900"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
+                    <ActionIcon kind="files" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100" title={file.name}>
+                      {file.name}
+                    </p>
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                      {file.kind} · {formatBytes(file.sizeBytes)}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </SidebarDialog>
+      ) : null}
+
+      {groupFor ? (
+        <SidebarDialog
+          title={(groupConversation?.groupMembers?.length ?? 0) > 0 ? 'Manage group chat' : 'Start a group chat'}
+          description={groupConversation?.title ?? 'Add collaborators'}
+          onClose={() => {
+            setGroupFor(null);
+            setGroupDraft('');
+          }}
+        >
+          <label htmlFor="group-members" className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400">
+            Members
+          </label>
+          <textarea
+            id="group-members"
+            value={groupDraft}
+            onChange={(e) => setGroupDraft(e.target.value)}
+            rows={4}
+            placeholder="name@company.com, teammate@company.com"
+            className="mt-2 w-full resize-none rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-200 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-primary-500 dark:focus:ring-primary-900"
+          />
+          <p className="mt-2 text-xs leading-relaxed text-neutral-500 dark:text-neutral-400">
+            Group membership is saved on this chat so you can track who the thread is meant for. Shared real-time editing still uses the existing share link flow.
+          </p>
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setGroupFor(null);
+                setGroupDraft('');
+              }}
+              className="rounded-xl px-3 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={commitGroup}
+              className="rounded-xl bg-gradient-to-b from-primary-500 to-primary-700 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_-8px_rgba(234,88,12,0.6)] hover:from-primary-400 hover:to-primary-600"
+            >
+              Save group
+            </button>
+          </div>
+        </SidebarDialog>
+      ) : null}
     </section>
   );
+}
+
+function ConversationAction({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: 'group' | 'files' | 'pin' | 'archive';
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-medium text-neutral-700 hover:bg-primary-50 hover:text-primary-700 dark:text-neutral-200 dark:hover:bg-primary-900/30 dark:hover:text-primary-200"
+    >
+      <ActionIcon kind={icon} />
+      {label}
+    </button>
+  );
+}
+
+function ActionIcon({ kind }: { kind: 'group' | 'files' | 'pin' | 'archive' }) {
+  if (kind === 'group') {
+    return (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+        <circle cx="8" cy="6.5" r="3" stroke="currentColor" strokeWidth="1.7" />
+        <path d="M2.8 17c.7-3.2 2.8-5 5.2-5s4.5 1.8 5.2 5M15 7v5M12.5 9.5h5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (kind === 'files') {
+    return (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+        <path d="M5 4h3l2 12H6.5L5 4zM10 4h3.5L15 16h-3.5L10 4z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (kind === 'pin') {
+    return (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+        <path d="M12 3l5 5-3 1-3.5 3.5.5 3.5-1 1-3-3-3.5 3.5-1-1L6 13l-3-3 1-1 3.5.5L11 6l1-3z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+      <path d="M4 6.5h12M5.5 6.5V16h9V6.5M7 4h6l1 2.5H6L7 4zM8 10h4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function SidebarDialog({
+  title,
+  description,
+  children,
+  onClose,
+}: {
+  title: string;
+  description: string;
+  children: ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/35 px-4 py-8 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-5 shadow-[0_24px_70px_-24px_rgba(15,23,42,0.45)] dark:border-neutral-800 dark:bg-neutral-950">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{title}</h2>
+            <p className="mt-0.5 truncate text-sm text-neutral-500 dark:text-neutral-400" title={description}>
+              {description}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close dialog"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+          >
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden>
+              <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function collectChatFiles(conversation: { messages?: Message[] } | null | undefined) {
+  const files: Array<MessageAttachment & { messageIndex: number }> = [];
+  for (const [messageIndex, message] of (conversation?.messages ?? []).entries()) {
+    if (!('attachments' in message)) continue;
+    for (const attachment of message.attachments ?? []) {
+      files.push({ ...attachment, messageIndex });
+    }
+  }
+  return files;
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function MenuIcon({ kind }: { kind: 'profile' | 'settings' | 'customize' | 'projects' | 'shortcuts' | 'help' | 'signout' | 'chevron' }) {

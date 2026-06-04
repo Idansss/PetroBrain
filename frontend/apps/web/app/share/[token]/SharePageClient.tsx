@@ -41,7 +41,11 @@ export function SharePageClient() {
         if (err instanceof ShareApiError) {
           if (err.status === 404) setState({ kind: 'not-found' });
           else if (err.status === 410) setState({ kind: 'gone' });
-          else setState({ kind: 'error', message: err.message });
+          else if (err.status === 401) {
+            setState({ kind: 'error', message: 'Your sign-in has expired. Sign in again to view this shared conversation.' });
+          } else {
+            setState({ kind: 'error', message: 'Could not load this shared conversation. Please try again.' });
+          }
         } else {
           setState({ kind: 'error', message: 'Could not load shared conversation.' });
         }

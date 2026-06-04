@@ -66,6 +66,25 @@ async def feedback_summary(
     }
 
 
+@router.get("/trend")
+async def feedback_trend(
+    days: int = Query(default=30, ge=1, le=180),
+    tenant_id: str | None = Query(default=None),
+    who: Principal = Depends(_admin_or_platform),
+):
+    """Daily 👍 / 👎 counts for the last ``days`` days (UTC). Gap-free: days
+    with no feedback appear with zero counts so the chart x-axis is regular."""
+    effective_tenant = _resolve_target_tenant(who, tenant_id)
+    series = get_feedback_repository().count_by_day(
+        tenant_id=effective_tenant, days=days,
+    )
+    return {
+        "tenant_id": effective_tenant,
+        "days": days,
+        "series": series,
+    }
+
+
 def _resolve_target_tenant(who: Principal, tenant_id: str | None) -> str:
     if tenant_id is None:
         return who.tenant_id

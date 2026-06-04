@@ -9,9 +9,11 @@ import type {
   FeedbackRating,
   FeedbackRow,
   FeedbackSummary,
+  FeedbackTrend,
   MemoryKind,
   MemoryRow,
   MemoryStatus,
+  MemoryTrend,
   TenantRow,
   TenantStatus,
   UserRole,
@@ -211,6 +213,24 @@ export async function getFeedbackSummary(
   const url = new URL('/admin/feedback/summary', opts.baseUrl);
   if (opts.tenantId) url.searchParams.set('tenant_id', opts.tenantId);
   return json<FeedbackSummary>(await fetch(url, init(opts)));
+}
+
+export async function getFeedbackTrend(
+  opts: ReqOpts & { tenantId?: string; days?: number },
+): Promise<FeedbackTrend> {
+  const url = new URL('/admin/feedback/trend', opts.baseUrl);
+  if (opts.tenantId) url.searchParams.set('tenant_id', opts.tenantId);
+  if (opts.days != null) url.searchParams.set('days', String(opts.days));
+  return json<FeedbackTrend>(await fetch(url, init(opts)));
+}
+
+export async function getMemoryTrend(
+  opts: ReqOpts & { tenantId?: string; weeks?: number },
+): Promise<MemoryTrend> {
+  const url = new URL('/admin/memory/trend', opts.baseUrl);
+  if (opts.tenantId) url.searchParams.set('tenant_id', opts.tenantId);
+  if (opts.weeks != null) url.searchParams.set('weeks', String(opts.weeks));
+  return json<MemoryTrend>(await fetch(url, init(opts)));
 }
 
 export interface MemoryResult {

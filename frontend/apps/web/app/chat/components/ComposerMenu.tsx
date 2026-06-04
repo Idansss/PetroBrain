@@ -9,6 +9,24 @@ import { useChatStore } from '@/lib/chat/store';
 
 type Panel = 'root' | 'skills' | 'project';
 
+const CREATE_TASK_PROMPT = `Create a task from this chat.
+
+Task:
+Owner:
+Priority:
+Due date:
+Context:
+Acceptance criteria:
+Next step:`;
+
+const DEEP_RESEARCH_PROMPT = `Run deep research on this topic.
+
+Research question:
+Scope:
+Sources to prioritize:
+Assumptions to verify:
+Deliverable format: executive summary, key findings, evidence, risks, and recommended next steps.`;
+
 export interface ComposerMenuProps {
   onAttachFiles: () => void;
   onTakeScreenshot: () => Promise<void> | void;
@@ -31,6 +49,7 @@ export function ComposerMenu({
   const setWebSearchEnabled = useChatStore((s) => s.setWebSearchEnabled);
   const forceCanvasNext = useChatStore((s) => s.forceCanvasNext);
   const setForceCanvasNext = useChatStore((s) => s.setForceCanvasNext);
+  const setThinkingMode = useChatStore((s) => s.setThinkingMode);
   const module = useChatStore((s) => s.module);
   const principal = useChatStore((s) => s.principal);
 
@@ -154,6 +173,26 @@ export function ComposerMenu({
               <Divider />
 
               <Section title="Capabilities">
+                <Row
+                  icon={<TaskIcon />}
+                  label="Create task"
+                  onClick={() => {
+                    onApplyPrompt(CREATE_TASK_PROMPT);
+                    setForceCanvasNext(true);
+                    close();
+                  }}
+                />
+                <Row
+                  icon={<ResearchIcon />}
+                  label="Deep research"
+                  onClick={() => {
+                    setWebSearchEnabled(true);
+                    setThinkingMode('extended');
+                    setForceCanvasNext(true);
+                    onApplyPrompt(DEEP_RESEARCH_PROMPT);
+                    close();
+                  }}
+                />
                 <Row
                   icon={<SkillsIcon />}
                   label="Skills..."
@@ -457,6 +496,46 @@ function SkillsIcon() {
         strokeLinejoin="round"
       />
       <path d="M7 7h6M7 10h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function TaskIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden>
+      <path
+        d="M8 5h8M8 10h8M8 15h8"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <path
+        d="M3.5 5.2l.9.9 1.8-2M3.5 10.2l.9.9 1.8-2"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="4.7" cy="15" r="1.2" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+function ResearchIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden>
+      <path
+        d="M4 12.5l3-1 5.5-5.5 1.5 1.5L8.5 13l-1 3-3.5-3.5z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12.5 6L14 4.5a1.4 1.4 0 012 2L14.5 8M3 5.5l3.5-1M4 3l1 3.5M14 14l3 3M15.5 12.5l2 2"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }

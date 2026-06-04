@@ -108,3 +108,27 @@ export interface ChunkWeightRow {
   down_count: number;
   last_updated: string;
 }
+
+export interface FeedbackTrendPoint {
+  day: string;        // YYYY-MM-DD, UTC
+  up: number;
+  down: number;
+}
+
+export interface FeedbackTrend {
+  tenant_id: string;
+  days: number;
+  series: FeedbackTrendPoint[];
+}
+
+export interface MemoryTrendPoint {
+  week_start: string; // YYYY-MM-DD (Monday)
+  manual: number;
+  promoted: number;
+}
+
+export interface MemoryTrend {
+  tenant_id: string;
+  weeks: number;
+  series: MemoryTrendPoint[];
+}

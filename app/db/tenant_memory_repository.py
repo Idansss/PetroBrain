@@ -148,6 +148,48 @@ class LocalJsonTenantMemoryRepository:
             if r.get("body")
         ]
 
+    def count_promotions_by_week(
+        self, *, tenant_id: str, weeks: int,
+    ) -> list[dict[str, Any]]:
+        """One row per ISO week (oldest-first) with the count of memories
+        created in that week. Splits manual vs promoted_feedback so the
+        chart can show "your team learned X new things this week from
+        feedback" separately from manual entries."""
+        from datetime import date, datetime, timedelta, timezone
+
+        today = datetime.now(timezone.utc).date()
+        # Anchor on Monday so the buckets align with conventional week starts.
+        this_week_monday = today - timedelta(days=today.weekday())
+        cutoff = this_week_monday - timedelta(weeks=weeks - 1)
+        rows = [r for r in self._read_all() if r["tenant_id"] == tenant_id]
+        buckets: dict[date, dict[str, int]] = {}
+        for r in rows:
+            ts = r.get("created_utc") or ""
+            if not isinstance(ts, str) or len(ts) < 10:
+                continue
+            try:
+                row_date = date.fromisoformat(ts[:10])
+            except ValueError:
+                continue
+            if row_date < cutoff:
+                continue
+            monday = row_date - timedelta(days=row_date.weekday())
+            b = buckets.setdefault(monday, {"manual": 0, "promoted": 0})
+            if r.get("source") == "promoted_feedback":
+                b["promoted"] += 1
+            else:
+                b["manual"] += 1
+        out: list[dict[str, Any]] = []
+        for i in range(weeks - 1, -1, -1):
+            week_start = this_week_monday - timedelta(weeks=i)
+            b = buckets.get(week_start, {"manual": 0, "promoted": 0})
+            out.append({
+                "week_start": week_start.isoformat(),
+                "manual": b["manual"],
+                "promoted": b["promoted"],
+            })
+        return out
+
     def _read_all(self) -> list[dict[str, Any]]:
         with self._lock:
             return self._read_all_locked()
@@ -270,6 +312,45 @@ class PostgresTenantMemoryRepository:
             for r in self.list_records(tenant_id=tenant_id, status="active", limit=10_000)
             if r.get("body")
         ]
+
+    def count_promotions_by_week(
+        self, *, tenant_id: str, weeks: int,
+    ) -> list[dict[str, Any]]:
+        from datetime import date, datetime, timedelta, timezone
+
+        today = datetime.now(timezone.utc).date()
+        this_week_monday = today - timedelta(days=today.weekday())
+        cutoff = this_week_monday - timedelta(weeks=weeks - 1)
+        with _pg_tenant(tenant_id, self.dsn) as conn:
+            rows = conn.execute(
+                "SELECT to_char(date_trunc('week', created_utc)::date, 'YYYY-MM-DD') AS week_start, "
+                "source, count(*) AS n "
+                "FROM tenant_memories "
+                "WHERE tenant_id = %s AND created_utc::date >= %s "
+                "GROUP BY week_start, source",
+                (tenant_id, cutoff),
+            ).fetchall()
+        buckets: dict[date, dict[str, int]] = {}
+        for r in rows:
+            try:
+                key = date.fromisoformat(r["week_start"])
+            except ValueError:
+                continue
+            b = buckets.setdefault(key, {"manual": 0, "promoted": 0})
+            if r["source"] == "promoted_feedback":
+                b["promoted"] += int(r["n"])
+            else:
+                b["manual"] += int(r["n"])
+        out: list[dict[str, Any]] = []
+        for i in range(weeks - 1, -1, -1):
+            week_start = this_week_monday - timedelta(weeks=i)
+            b = buckets.get(week_start, {"manual": 0, "promoted": 0})
+            out.append({
+                "week_start": week_start.isoformat(),
+                "manual": b["manual"],
+                "promoted": b["promoted"],
+            })
+        return out
 
 
 _COLUMNS = (

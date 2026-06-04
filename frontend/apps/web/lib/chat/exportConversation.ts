@@ -103,6 +103,154 @@ export function exportConversation(conv: Conversation): void {
   downloadMarkdown(conv.title, conversationToMarkdown(conv));
 }
 
+export function exportConversationPdf(conv: Conversation): void {
+  const win = window.open('', '_blank', 'noopener,noreferrer,width=960,height=1200');
+  if (!win) {
+    window.print();
+    return;
+  }
+  const title = conv.title || 'PetroBrain conversation';
+  win.document.write(renderConversationPrintHtml(conv, title));
+  win.document.close();
+  win.focus();
+  window.setTimeout(() => {
+    win.print();
+  }, 250);
+}
+
 export function isExportable(messages: Message[]): boolean {
   return messages.length > 0 && messages.some((m) => m.text.trim().length > 0);
+}
+
+function renderConversationPrintHtml(conv: Conversation, title: string): string {
+  const messages = conv.messages.map(renderPrintMessage).join('');
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(title)}</title>
+  <style>
+    @page { margin: 18mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #ffffff;
+      color: #171717;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    header {
+      border-bottom: 2px solid #ea580c;
+      margin-bottom: 22px;
+      padding-bottom: 14px;
+    }
+    h1 {
+      margin: 0 0 6px;
+      font-size: 24px;
+      line-height: 1.2;
+    }
+    .meta {
+      color: #666;
+      font-size: 11px;
+    }
+    .message {
+      break-inside: avoid;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      margin: 0 0 14px;
+      overflow: hidden;
+    }
+    .role {
+      align-items: center;
+      background: #f7f7f7;
+      border-bottom: 1px solid #ddd;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 8px 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 10px;
+      font-weight: 700;
+      color: #555;
+    }
+    .message.user .role {
+      background: #fff7ed;
+      color: #9a3412;
+    }
+    .message.assistant .role {
+      background: #f5f5f5;
+      color: #262626;
+    }
+    .body {
+      padding: 12px;
+      white-space: pre-wrap;
+    }
+    .attachments, .sources, .flags {
+      border-top: 1px solid #eee;
+      color: #555;
+      font-size: 11px;
+      padding: 8px 12px;
+    }
+    footer {
+      border-top: 1px solid #ddd;
+      color: #666;
+      font-size: 11px;
+      margin-top: 24px;
+      padding-top: 10px;
+    }
+    @media print {
+      body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>${escapeHtml(title)}</h1>
+    <div class="meta">
+      Exported from PetroBrain on ${escapeHtml(new Date().toLocaleString())}<br />
+      Created ${escapeHtml(new Date(conv.createdAt).toLocaleString())} · Updated ${escapeHtml(new Date(conv.updatedAt).toLocaleString())}
+    </div>
+  </header>
+  <main>${messages || '<p>This conversation is empty.</p>'}</main>
+  <footer>PetroBrain is decision support. Verify safety-critical numbers with the competent person before acting.</footer>
+</body>
+</html>`;
+}
+
+function renderPrintMessage(m: Message): string {
+  const role = m.role === 'user' ? 'You' : 'PetroBrain';
+  const created = new Date(m.createdAt).toLocaleString();
+  const body = m.text.trim() || (m.role === 'assistant' && m.streaming ? 'Response in progress.' : '');
+  const attachments =
+    m.role === 'user' && m.attachments && m.attachments.length > 0
+      ? `<div class="attachments"><strong>Attachments:</strong> ${m.attachments
+          .map((a) => `${escapeHtml(a.name)} (${escapeHtml(a.kind)}, ${formatBytes(a.sizeBytes)})`)
+          .join('; ')}</div>`
+      : '';
+  const sources =
+    m.role === 'assistant' && m.citations.length > 0
+      ? `<div class="sources"><strong>Sources:</strong> ${m.citations
+          .map((c) => escapeHtml([c.title, c.revision, c.clause, c.url].filter(Boolean).join(' - ')))
+          .join('; ')}</div>`
+      : '';
+  const flags =
+    m.role === 'assistant' && m.flags.length > 0
+      ? `<div class="flags"><strong>Flags:</strong> ${escapeHtml(m.flags.join(', '))}</div>`
+      : '';
+  return `<section class="message ${m.role}">
+    <div class="role"><span>${role}</span><span>${escapeHtml(created)}</span></div>
+    <div class="body">${escapeHtml(body)}</div>
+    ${attachments}${sources}${flags}
+  </section>`;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }

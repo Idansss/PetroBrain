@@ -124,6 +124,33 @@ class LocalJsonFeedbackRepository:
             rows = [r for r in rows if r.get("rating") == rating]
         return len(rows)
 
+    def count_by_day(
+        self, *, tenant_id: str, days: int,
+    ) -> list[dict[str, Any]]:
+        """Return one row per day in the last ``days`` (UTC), oldest-first,
+        with counts of ``up`` and ``down`` ratings. Days with no feedback
+        appear with zero counts so the frontend chart has gap-free x-axis."""
+        from datetime import datetime, timedelta, timezone
+
+        today = datetime.now(timezone.utc).date()
+        rows = [r for r in self._read_all() if r["tenant_id"] == tenant_id]
+        buckets: dict[str, dict[str, int]] = {}
+        for r in rows:
+            ts = r.get("created_utc") or ""
+            if not isinstance(ts, str) or len(ts) < 10:
+                continue
+            day = ts[:10]
+            b = buckets.setdefault(day, {"up": 0, "down": 0})
+            rating = r.get("rating")
+            if rating in ("up", "down"):
+                b[rating] += 1
+        out: list[dict[str, Any]] = []
+        for i in range(days - 1, -1, -1):
+            d = (today - timedelta(days=i)).isoformat()
+            b = buckets.get(d, {"up": 0, "down": 0})
+            out.append({"day": d, "up": b["up"], "down": b["down"]})
+        return out
+
     def _read_all(self) -> list[dict[str, Any]]:
         with self._lock:
             return self._read_all_locked()
@@ -204,6 +231,35 @@ class PostgresFeedbackRepository:
                 params,
             ).fetchone()
         return int(row["n"])
+
+    def count_by_day(
+        self, *, tenant_id: str, days: int,
+    ) -> list[dict[str, Any]]:
+        from datetime import datetime, timedelta, timezone
+
+        today = datetime.now(timezone.utc).date()
+        cutoff = today - timedelta(days=days - 1)
+        with _pg_tenant(tenant_id, self.dsn) as conn:
+            rows = conn.execute(
+                "SELECT to_char(created_utc::date, 'YYYY-MM-DD') AS day, "
+                "rating, count(*) AS n "
+                "FROM feedback_events "
+                "WHERE tenant_id = %s AND created_utc::date >= %s "
+                "GROUP BY day, rating",
+                (tenant_id, cutoff),
+            ).fetchall()
+        buckets: dict[str, dict[str, int]] = {}
+        for r in rows:
+            b = buckets.setdefault(r["day"], {"up": 0, "down": 0})
+            rating = r["rating"]
+            if rating in ("up", "down"):
+                b[rating] += int(r["n"])
+        out: list[dict[str, Any]] = []
+        for i in range(days - 1, -1, -1):
+            d = (today - timedelta(days=i)).isoformat()
+            b = buckets.get(d, {"up": 0, "down": 0})
+            out.append({"day": d, "up": b["up"], "down": b["down"]})
+        return out
 
 
 _COLUMNS = "id, tenant_id, user_id, turn_id, rating, reason, module, metadata, created_utc"

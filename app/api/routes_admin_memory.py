@@ -48,6 +48,27 @@ MAX_LIMIT = 200
 DEFAULT_LIMIT = 100
 
 
+@router.get("/trend")
+async def memory_trend(
+    weeks: int = Query(default=12, ge=1, le=52),
+    tenant_id: str | None = Query(default=None),
+    who: Principal = Depends(_admin_or_platform),
+):
+    """Weekly count of memories added (manual vs. promoted from feedback)
+    for the last ``weeks`` ISO weeks. Gap-free so the chart x-axis is
+    regular. Use alongside /admin/feedback/trend to see whether feedback
+    volume is translating into actionable memory growth."""
+    effective_tenant = _resolve_target_tenant(who, tenant_id)
+    series = get_tenant_memory_repository().count_promotions_by_week(
+        tenant_id=effective_tenant, weeks=weeks,
+    )
+    return {
+        "tenant_id": effective_tenant,
+        "weeks": weeks,
+        "series": series,
+    }
+
+
 @router.get("")
 async def list_memory(
     tenant_id: str | None = Query(default=None),

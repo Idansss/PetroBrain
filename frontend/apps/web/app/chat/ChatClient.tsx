@@ -6,7 +6,7 @@ import type { Citation, ToolResult } from '@petrobrain/types';
 
 import { useChatStore } from '@/lib/chat/store';
 import { ownerKeyOf, useConversationsStore } from '@/lib/chat/conversations';
-import { exportConversation, isExportable } from '@/lib/chat/exportConversation';
+import { exportConversationPdf, isExportable } from '@/lib/chat/exportConversation';
 import { buildSnapshot, mintShare, shareUrlFor, ShareApiError } from '@/lib/chat/shares';
 import { isCanvasWorthy } from '@/lib/chat/canvas';
 import { useProjectsStore } from '@/lib/chat/projects';
@@ -33,6 +33,8 @@ function nextId(prefix: string): string {
   messageCounter += 1;
   return `${prefix}-${Date.now()}-${messageCounter}`;
 }
+
+const EMPTY_MESSAGES: Message[] = [];
 
 export function ChatClient() {
   const token = useChatStore((s) => s.token);
@@ -88,7 +90,7 @@ export function ChatClient() {
     return convo;
   }, [activeId, conversations, ownerKey]);
 
-  const messages: Message[] = activeConversation?.messages ?? [];
+  const messages: Message[] = activeConversation?.messages ?? EMPTY_MESSAGES;
 
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -142,9 +144,29 @@ export function ChatClient() {
   const [shareStatus, setShareStatus] = useState<
     | { kind: 'idle' }
     | { kind: 'minting' }
-    | { kind: 'shared'; url: string; expiresUtc: string }
+    | { kind: 'shared'; url: string; expiresUtc: string; copied: boolean }
     | { kind: 'error'; message: string }
   >({ kind: 'idle' });
+
+  const closeShareModal = useCallback(() => setShareStatus({ kind: 'idle' }), []);
+
+  const copyShareLink = useCallback(async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareStatus((current) =>
+        current.kind === 'shared' ? { ...current, copied: true } : current,
+      );
+      window.setTimeout(() => {
+        setShareStatus((current) =>
+          current.kind === 'shared' ? { ...current, copied: false } : current,
+        );
+      }, 1600);
+    } catch {
+      setShareStatus((current) =>
+        current.kind === 'shared' ? { ...current, copied: false } : current,
+      );
+    }
+  }, []);
 
   const share = useCallback(async () => {
     if (!token || !activeConversation || !isExportable(messages)) return;
@@ -161,15 +183,18 @@ export function ChatClient() {
       } catch {
         // Clipboard may be blocked in non-secure contexts - still show the link.
       }
-      setShareStatus({ kind: 'shared', url, expiresUtc: record.expires_utc });
+      setShareStatus({ kind: 'shared', url, expiresUtc: record.expires_utc, copied: true });
     } catch (err) {
-      const message = err instanceof ShareApiError ? err.message : 'Could not create share link.';
+      const message =
+        err instanceof ShareApiError
+          ? shareErrorMessage(err)
+          : 'Could not create the share link. Please try again.';
       setShareStatus({ kind: 'error', message });
     }
   }, [token, activeConversation, messages, module, apiBaseUrl]);
 
   useEffect(() => {
-    if (shareStatus.kind !== 'shared' && shareStatus.kind !== 'error') return;
+    if (shareStatus.kind !== 'error') return;
     const timeout = setTimeout(() => setShareStatus({ kind: 'idle' }), 6000);
     return () => clearTimeout(timeout);
   }, [shareStatus]);
@@ -437,12 +462,23 @@ export function ChatClient() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const pinnedToBottomRef = useRef(true);
   const lastMessageCount = useRef(messages.length);
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    pinnedToBottomRef.current = distanceFromBottom < 120;
+    const isPinned = distanceFromBottom < 120;
+    pinnedToBottomRef.current = isPinned;
+    setShowJumpToBottom(!isPinned);
+  }, []);
+
+  const scrollToLatest = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    pinnedToBottomRef.current = true;
+    setShowJumpToBottom(false);
   }, []);
 
   useEffect(() => {
@@ -456,6 +492,7 @@ export function ChatClient() {
     if (grew || pinnedToBottomRef.current) {
       el.scrollTop = el.scrollHeight;
       pinnedToBottomRef.current = true;
+      setShowJumpToBottom(false);
     }
   }, [messages]);
 
@@ -463,6 +500,7 @@ export function ChatClient() {
   // bottom even if the previous one was scrolled up.
   useEffect(() => {
     pinnedToBottomRef.current = true;
+    setShowJumpToBottom(false);
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [activeId]);
@@ -554,10 +592,10 @@ export function ChatClient() {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => activeConversation && exportConversation(activeConversation)}
+              onClick={() => activeConversation && exportConversationPdf(activeConversation)}
               disabled={!activeConversation || !isExportable(messages)}
-              title="Export this conversation as Markdown"
-              aria-label="Export conversation"
+              title="Export this conversation as PDF"
+              aria-label="Export conversation as PDF"
               className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-neutral-200/70 bg-white/80 text-neutral-600 shadow-[0_1px_2px_rgba(15,23,42,0.04)] backdrop-blur transition-all hover:border-primary-300 hover:bg-white hover:text-primary-700 hover:shadow-[0_4px_12px_-4px_rgba(234,88,12,0.25)] disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700/70 dark:bg-neutral-900/70 dark:text-neutral-300 dark:hover:border-primary-600 dark:hover:bg-neutral-900 dark:hover:text-primary-300"
             >
               <svg width="15" height="15" viewBox="0 0 20 20" fill="none" aria-hidden>
@@ -609,34 +647,9 @@ export function ChatClient() {
           </div>
         </header>
 
-        {shareStatus.kind === 'shared' ? (
-          <div className="relative z-20 border-b border-primary-200/60 bg-primary-50/70 px-7 py-2 text-xs text-primary-900 dark:border-primary-700/40 dark:bg-primary-900/30 dark:text-primary-100">
-            <div className="flex items-center justify-between gap-3">
-              <span className="flex items-center gap-2">
-                <svg width="13" height="13" viewBox="0 0 20 20" fill="none" aria-hidden>
-                  <path d="M5 10.5L8.5 14L15 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                <span className="font-semibold">Link copied to clipboard.</span>
-                <span className="hidden text-primary-700/80 dark:text-primary-200/80 sm:inline">
-                  Expires {new Date(shareStatus.expiresUtc).toLocaleDateString()}. Only signed-in users in your tenant can view it.
-                </span>
-              </span>
-              <button
-                type="button"
-                onClick={() => setShareStatus({ kind: 'idle' })}
-                aria-label="Dismiss"
-                className="text-primary-700/70 hover:text-primary-900 dark:text-primary-300/70 dark:hover:text-primary-100"
-              >
-                <svg width="12" height="12" viewBox="0 0 20 20" fill="none">
-                  <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        ) : null}
         {shareStatus.kind === 'error' ? (
           <div className="relative z-20 border-b border-danger-border bg-danger-bg px-7 py-2 text-xs text-danger-fg dark:border-danger-border/40 dark:bg-danger-fg/20 dark:text-danger-bg">
-            Could not share: {shareStatus.message}
+            {shareStatus.message}
           </div>
         ) : null}
 
@@ -661,6 +674,29 @@ export function ChatClient() {
             />
           )}
         </div>
+        {showJumpToBottom && messages.length > 0 ? (
+          <button
+            type="button"
+            onClick={scrollToLatest}
+            className="absolute bottom-28 left-1/2 z-30 flex h-12 w-12 -translate-x-1/2 items-center justify-center rounded-full border border-white/25 bg-neutral-950/85 text-white shadow-[0_18px_45px_-18px_rgba(15,23,42,0.9),inset_0_1px_0_rgba(255,255,255,0.24)] backdrop-blur transition hover:-translate-y-0.5 hover:bg-neutral-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 dark:border-white/15 dark:bg-neutral-100/15 dark:text-white dark:hover:bg-neutral-100/25"
+            aria-label="Jump to latest message"
+            title="Jump to latest message"
+          >
+            <svg
+              aria-hidden="true"
+              className="h-6 w-6"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 5v14" />
+              <path d="m19 12-7 7-7-7" />
+            </svg>
+          </button>
+        ) : null}
         {error ? (
           <div className="relative z-10 border-t border-danger-border bg-danger-bg px-6 py-2 text-sm text-danger-fg dark:border-danger-border/40 dark:bg-danger-fg/20 dark:text-danger-bg">
             {error}
@@ -676,6 +712,143 @@ export function ChatClient() {
       {canvasMessage ? (
         <CanvasPanel message={canvasMessage} onClose={closeCanvas} />
       ) : null}
+      {shareStatus.kind === 'shared' && activeConversation ? (
+        <ShareDialog
+          title={activeConversation.title || 'PetroBrain conversation'}
+          url={shareStatus.url}
+          expiresUtc={shareStatus.expiresUtc}
+          copied={shareStatus.copied}
+          onCopy={() => void copyShareLink(shareStatus.url)}
+          onClose={closeShareModal}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function shareErrorMessage(err: ShareApiError): string {
+  if (err.status === 401) {
+    return 'Your sign-in has expired. Sign in again to create a share link.';
+  }
+  if (err.status === 403) {
+    return 'You do not have permission to share this conversation.';
+  }
+  return 'Could not create the share link. Please try again.';
+}
+
+function ShareDialog({
+  title,
+  url,
+  expiresUtc,
+  copied,
+  onCopy,
+  onClose,
+}: {
+  title: string;
+  url: string;
+  expiresUtc: string;
+  copied: boolean;
+  onCopy: () => void;
+  onClose: () => void;
+}) {
+  const encodedUrl = encodeURIComponent(url);
+  const encodedTitle = encodeURIComponent(title);
+  const shareTargets = [
+    {
+      label: 'X',
+      href: `https://twitter.com/intent/tweet?url=${encodedUrl}&text=${encodedTitle}`,
+      icon: 'X',
+    },
+    {
+      label: 'LinkedIn',
+      href: `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`,
+      icon: 'in',
+    },
+    {
+      label: 'Reddit',
+      href: `https://www.reddit.com/submit?url=${encodedUrl}&title=${encodedTitle}`,
+      icon: 'r',
+    },
+  ];
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="share-dialog-title"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/70 px-4 py-8 backdrop-blur-sm"
+    >
+      <div className="w-full max-w-[34rem] rounded-[2rem] border border-white/10 bg-neutral-950 p-6 text-white shadow-[0_30px_100px_-30px_rgba(0,0,0,0.8)]">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 id="share-dialog-title" className="text-2xl font-semibold tracking-tight">
+              Share conversation
+            </h2>
+            <p className="mt-1 text-sm text-neutral-400">
+              Link copied. Anyone in your tenant with access can open this read-only snapshot until{' '}
+              {new Date(expiresUtc).toLocaleDateString()}.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close share dialog"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-neutral-300 transition hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300"
+          >
+            <svg width="17" height="17" viewBox="0 0 20 20" fill="none" aria-hidden>
+              <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="mt-6 overflow-hidden rounded-2xl border border-white/10 bg-neutral-900">
+          <div className="relative min-h-[12rem] bg-gradient-to-br from-neutral-800 via-neutral-900 to-black p-5">
+            <div className="inline-flex items-center gap-2 rounded-full bg-primary-500/15 px-3 py-1 text-xs font-semibold text-primary-200 ring-1 ring-primary-400/20">
+              PetroBrain
+            </div>
+            <div className="mt-14 max-w-[80%] rounded-2xl bg-neutral-800/95 px-4 py-3 shadow-2xl">
+              <p className="line-clamp-2 text-lg font-semibold leading-snug">{title}</p>
+              <p className="mt-2 text-sm text-neutral-400">Read-only conversation snapshot</p>
+            </div>
+            <div className="absolute bottom-4 right-5 text-xl font-bold tracking-tight">PetroBrain</div>
+          </div>
+        </div>
+
+        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <button
+            type="button"
+            onClick={onCopy}
+            className="flex flex-col items-center gap-2 rounded-2xl border border-white/10 bg-white px-3 py-4 text-neutral-950 transition hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300"
+          >
+            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-950 text-white">
+              {copied ? (
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+                  <path d="M4 10.5L8 14.5L16 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+                  <path d="M8.5 11.5l3-3M7 6.5l-.8.8a4 4 0 005.7 5.7l.8-.8M13 13.5l.8-.8a4 4 0 00-5.7-5.7l-.8.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              )}
+            </span>
+            <span className="text-sm font-medium">{copied ? 'Copied' : 'Copy link'}</span>
+          </button>
+          {shareTargets.map((target) => (
+            <a
+              key={target.label}
+              href={target.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex flex-col items-center gap-2 rounded-2xl border border-white/10 bg-white px-3 py-4 text-neutral-950 transition hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300"
+            >
+              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-950 text-lg font-bold text-white">
+                {target.icon}
+              </span>
+              <span className="text-sm font-medium">{target.label}</span>
+            </a>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

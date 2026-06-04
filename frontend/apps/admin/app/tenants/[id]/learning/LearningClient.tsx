@@ -8,6 +8,8 @@ import { Badge, Banner, Button, Card } from '@petrobrain/ui';
 import {
   createMemory,
   getFeedbackSummary,
+  getFeedbackTrend,
+  getMemoryTrend,
   listChunkWeights,
   listFeedback,
   listMemory,
@@ -17,8 +19,10 @@ import {
 import type {
   ChunkWeightRow,
   FeedbackRow,
+  FeedbackTrendPoint,
   MemoryKind,
   MemoryRow,
+  MemoryTrendPoint,
 } from '@/lib/admin-console/types';
 import { MEMORY_KINDS } from '@/lib/admin-console/types';
 import { useAdminSession } from '@/lib/session/store';
@@ -88,6 +92,14 @@ function LearningView({
     queryKey: ['learning', tenantId, 'weights'],
     queryFn: ({ signal }) => listChunkWeights({ ...auth, signal, limit: 50 }),
   });
+  const feedbackTrend = useQuery({
+    queryKey: ['learning', tenantId, 'feedback-trend'],
+    queryFn: ({ signal }) => getFeedbackTrend({ ...auth, signal, days: 30 }),
+  });
+  const memoryTrend = useQuery({
+    queryKey: ['learning', tenantId, 'memory-trend'],
+    queryFn: ({ signal }) => getMemoryTrend({ ...auth, signal, weeks: 12 }),
+  });
 
   return (
     <AdminShell
@@ -100,6 +112,13 @@ function LearningView({
         feedbackDown={summary.data?.down ?? 0}
         activeMemories={memories.data?.memories.length ?? 0}
         weightedChunks={weights.data?.weights.length ?? 0}
+      />
+
+      <TrendsSection
+        feedback={feedbackTrend.data?.series ?? []}
+        memory={memoryTrend.data?.series ?? []}
+        loading={feedbackTrend.isLoading || memoryTrend.isLoading}
+        error={feedbackTrend.error ?? memoryTrend.error}
       />
 
       <FeedbackSection
@@ -539,6 +558,17 @@ function MemorySection({
 
 // ---- Chunk weights section --------------------------------------------
 
+// Floor / ceiling constants - kept in sync with chunk_weight_floor /
+// chunk_weight_ceiling in app/config.py. If those move, update here. A
+// chunk is considered "at the floor" when it's within 1% of the floor value
+// (covers floating-point round trip plus clamp).
+const CHUNK_WEIGHT_FLOOR = 0.5;
+const FLOOR_EPSILON = 0.005;
+
+function isAtFloor(weight: number): boolean {
+  return weight <= CHUNK_WEIGHT_FLOOR + FLOOR_EPSILON;
+}
+
 function ChunkWeightsSection({
   rows,
   loading,
@@ -548,6 +578,10 @@ function ChunkWeightsSection({
   loading: boolean;
   error: unknown;
 }) {
+  const [showOnlyFloor, setShowOnlyFloor] = useState(false);
+  const floorRows = rows.filter((r) => isAtFloor(r.weight));
+  const visible = showOnlyFloor ? floorRows : rows;
+
   return (
     <Card
       title="Retrieval weights"
@@ -566,35 +600,276 @@ function ChunkWeightsSection({
         </p>
       ) : null}
       {rows.length > 0 ? (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-neutral-200 text-left text-xs font-medium uppercase tracking-[0.06em] text-neutral-500">
-              <th className="py-2 pr-3">Chunk</th>
-              <th className="py-2 pr-3">Weight</th>
-              <th className="py-2 pr-3">👍</th>
-              <th className="py-2 pr-3">👎</th>
-              <th className="py-2">Last updated</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.chunk_id} className="border-b border-neutral-100">
-                <td className="py-2 pr-3 font-mono text-xs text-neutral-700">{row.chunk_id}</td>
-                <td className="py-2 pr-3">
-                  <WeightBar weight={row.weight} />
-                </td>
-                <td className="py-2 pr-3 text-neutral-700">{row.up_count}</td>
-                <td className="py-2 pr-3 text-neutral-700">{row.down_count}</td>
-                <td className="py-2 text-xs text-neutral-500">
-                  {new Date(row.last_updated).toLocaleString()}
-                </td>
+        <>
+          {floorRows.length > 0 ? (
+            <div className="mb-3 flex items-start gap-3 rounded-md border border-danger-border bg-danger-bg/50 p-3 text-xs text-danger-fg">
+              <div className="mt-0.5">⚠️</div>
+              <div className="flex-1">
+                <p className="font-medium">
+                  {floorRows.length} {floorRows.length === 1 ? 'chunk has' : 'chunks have'} hit
+                  the safety floor (weight = {CHUNK_WEIGHT_FLOOR.toFixed(1)}).
+                </p>
+                <p className="mt-0.5">
+                  These chunks accumulated enough negative feedback to be demoted as far as the
+                  system allows. Decide per chunk: rewrite the source SOP, replace the document,
+                  or remove the chunk from the corpus. Capped negative feedback alone will not
+                  hide them from retrieval.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant={showOnlyFloor ? 'primary' : 'ghost'}
+                onClick={() => setShowOnlyFloor((v) => !v)}
+              >
+                {showOnlyFloor ? 'Show all' : 'Investigate'}
+              </Button>
+            </div>
+          ) : null}
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-neutral-200 text-left text-xs font-medium uppercase tracking-[0.06em] text-neutral-500">
+                <th className="py-2 pr-3">Chunk</th>
+                <th className="py-2 pr-3">Weight</th>
+                <th className="py-2 pr-3">👍</th>
+                <th className="py-2 pr-3">👎</th>
+                <th className="py-2">Last updated</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {visible.map((row) => (
+                <tr
+                  key={row.chunk_id}
+                  className={isAtFloor(row.weight) ? 'border-b border-danger-border/40 bg-danger-bg/10' : 'border-b border-neutral-100'}
+                >
+                  <td className="py-2 pr-3 font-mono text-xs text-neutral-700">
+                    {row.chunk_id}
+                    {isAtFloor(row.weight) ? (
+                      <Badge tone="danger" className="ml-2">at floor</Badge>
+                    ) : null}
+                  </td>
+                  <td className="py-2 pr-3">
+                    <WeightBar weight={row.weight} />
+                  </td>
+                  <td className="py-2 pr-3 text-neutral-700">{row.up_count}</td>
+                  <td className="py-2 pr-3 text-neutral-700">{row.down_count}</td>
+                  <td className="py-2 text-xs text-neutral-500">
+                    {new Date(row.last_updated).toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       ) : null}
     </Card>
   );
+}
+
+// ---- Trends section ---------------------------------------------------
+
+function TrendsSection({
+  feedback,
+  memory,
+  loading,
+  error,
+}: {
+  feedback: FeedbackTrendPoint[];
+  memory: MemoryTrendPoint[];
+  loading: boolean;
+  error: unknown;
+}) {
+  return (
+    <Card
+      title="Trends"
+      description="Daily 👍 / 👎 over 30 days, weekly memory additions over 12 weeks."
+    >
+      {error ? (
+        <Banner tone="danger" title="Failed to load trends">
+          {(error as Error).message}
+        </Banner>
+      ) : null}
+      {loading ? <p className="text-sm text-neutral-500">Loading…</p> : null}
+      {!loading && feedback.length === 0 && memory.length === 0 ? (
+        <p className="text-sm text-neutral-500">
+          No trend data yet.
+        </p>
+      ) : null}
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <FeedbackTrendChart series={feedback} />
+        <MemoryTrendChart series={memory} />
+      </div>
+    </Card>
+  );
+}
+
+function FeedbackTrendChart({ series }: { series: FeedbackTrendPoint[] }) {
+  if (series.length === 0) return null;
+  const w = 360;
+  const h = 110;
+  const padL = 20;
+  const padR = 4;
+  const padT = 10;
+  const padB = 18;
+  const innerW = w - padL - padR;
+  const innerH = h - padT - padB;
+  const max = Math.max(1, ...series.map((p) => p.up + p.down));
+  const barW = Math.max(2, innerW / series.length - 2);
+  const totalUp = series.reduce((acc, p) => acc + p.up, 0);
+  const totalDown = series.reduce((acc, p) => acc + p.down, 0);
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-medium uppercase tracking-[0.06em] text-neutral-500">
+        Feedback per day · 30d
+      </p>
+      <svg
+        viewBox={`0 0 ${w} ${h}`}
+        className="w-full"
+        role="img"
+        aria-label={`Feedback per day for the last 30 days. ${totalUp} thumbs up, ${totalDown} thumbs down.`}
+      >
+        <line x1={padL} y1={padT + innerH} x2={padL + innerW} y2={padT + innerH} stroke="#e5e7eb" />
+        {series.map((p, i) => {
+          const x = padL + (i * innerW) / series.length + 1;
+          const totalForDay = p.up + p.down;
+          const totalHeight = totalForDay > 0 ? (totalForDay / max) * innerH : 0;
+          const downHeight = totalForDay > 0 ? (p.down / max) * innerH : 0;
+          const upHeight = totalHeight - downHeight;
+          const yTop = padT + innerH - totalHeight;
+          return (
+            <g key={p.day}>
+              {p.down > 0 ? (
+                <rect
+                  x={x}
+                  y={padT + innerH - downHeight}
+                  width={barW}
+                  height={downHeight}
+                  fill="#dc2626"
+                  fillOpacity={0.7}
+                />
+              ) : null}
+              {p.up > 0 ? (
+                <rect
+                  x={x}
+                  y={yTop}
+                  width={barW}
+                  height={upHeight}
+                  fill="#16a34a"
+                  fillOpacity={0.7}
+                />
+              ) : null}
+            </g>
+          );
+        })}
+        {series.length > 0 ? (
+          <>
+            <text x={padL} y={h - 4} fontSize="9" fill="#9ca3af">
+              {formatDayShort(series[0]?.day ?? '')}
+            </text>
+            <text x={padL + innerW} y={h - 4} fontSize="9" fill="#9ca3af" textAnchor="end">
+              {formatDayShort(series[series.length - 1]?.day ?? '')}
+            </text>
+          </>
+        ) : null}
+      </svg>
+      <p className="text-[11px] text-neutral-500">
+        <span className="font-medium text-green-700">👍 {totalUp}</span>
+        {' · '}
+        <span className="font-medium text-red-700">👎 {totalDown}</span>
+        {' total in window'}
+      </p>
+    </div>
+  );
+}
+
+function MemoryTrendChart({ series }: { series: MemoryTrendPoint[] }) {
+  if (series.length === 0) return null;
+  const w = 360;
+  const h = 110;
+  const padL = 20;
+  const padR = 4;
+  const padT = 10;
+  const padB = 18;
+  const innerW = w - padL - padR;
+  const innerH = h - padT - padB;
+  const max = Math.max(1, ...series.map((p) => p.manual + p.promoted));
+  const barW = Math.max(4, innerW / series.length - 4);
+  const totalManual = series.reduce((acc, p) => acc + p.manual, 0);
+  const totalPromoted = series.reduce((acc, p) => acc + p.promoted, 0);
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-medium uppercase tracking-[0.06em] text-neutral-500">
+        Memories added per week · 12w
+      </p>
+      <svg
+        viewBox={`0 0 ${w} ${h}`}
+        className="w-full"
+        role="img"
+        aria-label={`Memory additions per week for the last 12 weeks. ${totalManual} manual, ${totalPromoted} promoted from feedback.`}
+      >
+        <line x1={padL} y1={padT + innerH} x2={padL + innerW} y2={padT + innerH} stroke="#e5e7eb" />
+        {series.map((p, i) => {
+          const x = padL + (i * innerW) / series.length + 2;
+          const total = p.manual + p.promoted;
+          const totalHeight = total > 0 ? (total / max) * innerH : 0;
+          const manualHeight = total > 0 ? (p.manual / max) * innerH : 0;
+          const promotedHeight = totalHeight - manualHeight;
+          const yTop = padT + innerH - totalHeight;
+          return (
+            <g key={p.week_start}>
+              {p.manual > 0 ? (
+                <rect
+                  x={x}
+                  y={padT + innerH - manualHeight}
+                  width={barW}
+                  height={manualHeight}
+                  fill="#a3a3a3"
+                  fillOpacity={0.7}
+                />
+              ) : null}
+              {p.promoted > 0 ? (
+                <rect
+                  x={x}
+                  y={yTop}
+                  width={barW}
+                  height={promotedHeight}
+                  fill="#ea580c"
+                  fillOpacity={0.8}
+                />
+              ) : null}
+            </g>
+          );
+        })}
+        {series.length > 0 ? (
+          <>
+            <text x={padL} y={h - 4} fontSize="9" fill="#9ca3af">
+              {formatWeekShort(series[0]?.week_start ?? '')}
+            </text>
+            <text x={padL + innerW} y={h - 4} fontSize="9" fill="#9ca3af" textAnchor="end">
+              {formatWeekShort(series[series.length - 1]?.week_start ?? '')}
+            </text>
+          </>
+        ) : null}
+      </svg>
+      <p className="text-[11px] text-neutral-500">
+        <span className="font-medium text-primary-600">{totalPromoted} promoted</span>
+        {' · '}
+        <span className="font-medium text-neutral-500">{totalManual} manual</span>
+        {' in window'}
+      </p>
+    </div>
+  );
+}
+
+function formatDayShort(iso: string): string {
+  if (!iso || iso.length < 10) return '';
+  // YYYY-MM-DD -> MMM D
+  const d = new Date(iso + 'T00:00:00Z');
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+function formatWeekShort(iso: string): string {
+  return formatDayShort(iso);
 }
 
 function WeightBar({ weight }: { weight: number }) {
