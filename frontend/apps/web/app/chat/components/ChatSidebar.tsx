@@ -14,19 +14,37 @@ import { useSettingsStore } from '@/lib/chat/settings';
 import { useChatStore } from '@/lib/chat/store';
 import type { Message, MessageAttachment } from '@/lib/chat/types';
 
+/**
+ * True when the principal is admin or platform_admin - the two roles that
+ * should see the /admin nav entry. Defined once so the expanded and
+ * collapsed sidebars agree on visibility.
+ *
+ * This is a UI-level hide only. The backend's /admin/* routes enforce role
+ * gating server-side with a 403 - so a non-admin who knows the URL and
+ * navigates manually still cannot read or write through these endpoints.
+ */
+function isAdminPrincipal(principal: { role?: string } | null | undefined): boolean {
+  if (!principal) return false;
+  return principal.role === 'admin' || principal.role === 'platform_admin';
+}
+
+// Routes shown in the persistent left rail. `requiresAdmin` items are
+// filtered out for non-admin principals further below.
 const NAV: {
-  href: '/chat' | '/projects' | '/customize' | '/emissions' | '/admin/documents';
+  href: '/chat' | '/projects' | '/customize' | '/emissions' | '/admin/documents' | '/admin';
   label: string;
-  icon: 'chat' | 'project' | 'customize' | 'leaf' | 'doc';
+  icon: 'chat' | 'project' | 'customize' | 'leaf' | 'doc' | 'spark';
+  requiresAdmin?: boolean;
 }[] = [
   { href: '/chat', label: 'Chat', icon: 'chat' },
   { href: '/projects', label: 'Projects', icon: 'project' },
   { href: '/customize', label: 'Customize', icon: 'customize' },
   { href: '/emissions', label: 'Emissions MRV', icon: 'leaf' },
   { href: '/admin/documents', label: 'Documents', icon: 'doc' },
+  { href: '/admin', label: 'Admin', icon: 'spark', requiresAdmin: true },
 ];
 
-function NavIcon({ kind }: { kind: 'chat' | 'project' | 'customize' | 'leaf' | 'doc' }) {
+function NavIcon({ kind }: { kind: 'chat' | 'project' | 'customize' | 'leaf' | 'doc' | 'spark' }) {
   if (kind === 'chat') {
     return (
       <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden>
@@ -79,15 +97,31 @@ function NavIcon({ kind }: { kind: 'chat' | 'project' | 'customize' | 'leaf' | '
       </svg>
     );
   }
+  if (kind === 'doc') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden>
+        <path
+          d="M6 3h6l4 4v9a1.5 1.5 0 01-1.5 1.5h-8.5A1.5 1.5 0 014.5 16V4.5A1.5 1.5 0 016 3z"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinejoin="round"
+        />
+        <path d="M12 3v4h4" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  return <SparkIcon />;
+}
+
+function SparkIcon() {
+  // Spark / signal glyph for the Admin Learning entry: not a settings cog
+  // (which would clash with /customize) and not a chart (which would clash
+  // with /emissions) - a feedback-flow shape that suggests "the system is
+  // learning here".
   return (
     <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden>
-      <path
-        d="M6 3h6l4 4v9a1.5 1.5 0 01-1.5 1.5h-8.5A1.5 1.5 0 014.5 16V4.5A1.5 1.5 0 016 3z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-      <path d="M12 3v4h4" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M10 2v3M10 15v3M2 10h3M15 10h3M4.6 4.6l2.1 2.1M13.3 13.3l2.1 2.1M4.6 15.4l2.1-2.1M13.3 6.7l2.1-2.1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <circle cx="10" cy="10" r="2" stroke="currentColor" strokeWidth="1.5" />
     </svg>
   );
 }
@@ -1072,7 +1106,7 @@ export function ChatSidebar() {
       </header>
 
       <nav className="space-y-0.5">
-        {NAV.map((item) => {
+        {NAV.filter((item) => !item.requiresAdmin || isAdminPrincipal(principal)).map((item) => {
           const active = pathname === item.href || (item.href !== '/chat' && pathname?.startsWith(item.href));
           return (
             <Link
@@ -1155,7 +1189,7 @@ function CollapsedSidebar({
       </button>
 
       <nav className="mt-2 flex flex-col gap-1">
-        {NAV.map((item) => {
+        {NAV.filter((item) => !item.requiresAdmin || isAdminPrincipal(principal)).map((item) => {
           const active = pathname === item.href || (item.href !== '/chat' && pathname?.startsWith(item.href));
           return (
             <Link
