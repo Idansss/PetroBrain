@@ -64,6 +64,7 @@ export function ChatClient() {
   const selectProject = useProjectsStore((s) => s.selectProject);
   const customInstructions = useSettingsStore((s) => s.customInstructions);
   const defaultModule = useSettingsStore((s) => s.defaultModule);
+  const enableNotifications = useSettingsStore((s) => s.enableNotifications);
   const settingsHydrated = useSettingsStore((s) => s.hasHydrated);
   const setModule = useChatStore((s) => s.setModule);
 
@@ -203,6 +204,27 @@ export function ChatClient() {
     }
   }, [token, activeConversation, messages, module, apiBaseUrl]);
 
+  const notifyAnswerReady = useCallback((conversationTitle: string) => {
+    if (
+      !enableNotifications
+      || typeof document === 'undefined'
+      || !document.hidden
+      || typeof window === 'undefined'
+      || !('Notification' in window)
+      || window.Notification.permission !== 'granted'
+    ) {
+      return;
+    }
+    try {
+      new window.Notification('PetroBrain answer ready', {
+        body: conversationTitle ? `${conversationTitle} is ready.` : 'Your answer is ready.',
+        tag: 'petrobrain-answer-ready',
+      });
+    } catch {
+      // The browser can still deny notification display after permission changes.
+    }
+  }, [enableNotifications]);
+
   useEffect(() => {
     if (shareStatus.kind !== 'error') return;
     const timeout = setTimeout(() => setShareStatus({ kind: 'idle' }), 6000);
@@ -275,6 +297,10 @@ export function ChatClient() {
       if (baseMessages.length === 0) {
         setTitleFromFirstMessage(convoId, trimmed || attachments[0]?.name || 'New chat');
       }
+      const notificationTitle =
+        baseMessages.length === 0
+          ? trimmed || attachments[0]?.name || 'New chat'
+          : conversations[convoId]?.title || 'PetroBrain';
 
       setError(null);
       setSending(true);
@@ -326,6 +352,7 @@ export function ChatClient() {
             setMessagesInStore(convoId!, workingMessages, ownerKey);
           },
         });
+        notifyAnswerReady(notificationTitle);
       } catch (e) {
         const wasUserAbort =
           e instanceof DOMException && e.name === 'AbortError';
@@ -385,6 +412,7 @@ export function ChatClient() {
       expireSession,
       module,
       newConversation,
+      notifyAnswerReady,
       ownerKey,
       principal,
       sending,

@@ -15,7 +15,7 @@ export function DocumentsTable({ rows, isLoading, isError, emptyState }: Documen
   if (isError) {
     return (
       <p role="alert" className="rounded-md border border-danger-border bg-danger-bg p-3 text-sm text-danger-fg dark:border-danger-border/40 dark:bg-danger-fg/20 dark:text-danger-bg">
-        Could not load documents. Check the API base URL and your sign-in.
+        Could not load documents. Sign in again or try later.
       </p>
     );
   }

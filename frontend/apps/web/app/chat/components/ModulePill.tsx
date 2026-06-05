@@ -196,7 +196,7 @@ export function ModulePill() {
                 }))),
               ]}
               {...(assets.isError
-                ? { error: 'Could not load assets - check API base URL or auth.' }
+                ? { error: 'Could not load assets. Sign in again or try later.' }
                 : assets.isLoading
                   ? { hint: 'Loading assets…' }
                   : { hint: 'Filters retrieved citations to the relevant asset.' })}

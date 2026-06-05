@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
 
 import type { Module } from '@petrobrain/types';
@@ -39,7 +39,7 @@ const SECTIONS: SectionDef[] = [
   { key: 'profile', label: 'Profile', icon: 'profile' },
   { key: 'instructions', label: 'Custom instructions', icon: 'instructions' },
   { key: 'data', label: 'Data controls', icon: 'data' },
-  { key: 'notifications', label: 'Notifications', icon: 'bell', stub: true },
+  { key: 'notifications', label: 'Notifications', icon: 'bell' },
   { key: 'spoken', label: 'Spoken language', icon: 'mic', stub: true },
   { key: 'account', label: 'Account', icon: 'account' },
 ];
@@ -295,23 +295,94 @@ function BackHeader() {
   );
 }
 
+type BrowserNotificationPermission = NotificationPermission | 'unsupported';
+
 export function SettingsClient() {
   const params = useSearchParams();
   const initial = (params?.get('section') as Section | null) ?? 'general';
   const [section, setSection] = useState<Section>(initial);
+  const [notificationPermission, setNotificationPermission] =
+    useState<BrowserNotificationPermission>(() =>
+      typeof window !== 'undefined' && 'Notification' in window
+        ? window.Notification.permission
+        : 'unsupported',
+    );
 
   const token = useChatStore((s) => s.token);
   const principal = useChatStore((s) => s.principal);
-  const apiBaseUrl = useChatStore((s) => s.apiBaseUrl);
   const hasChatHydrated = useChatStore((s) => s.hasHydrated);
   const setToken = useChatStore((s) => s.setToken);
 
   const s = useSettingsStore();
+  const enableNotifications = s.enableNotifications;
+  const setEnableNotifications = s.setEnableNotifications;
   const conversations = useConversationsStore((cs) => cs.conversations);
   const order = useConversationsStore((cs) => cs.order);
   const projects = useProjectsStore((ps) => ps.projects);
 
   const ownerKey = useMemo(() => ownerKeyOf(principal), [principal]);
+  const accountName = principal?.email ?? principal?.userId ?? '';
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      setNotificationPermission('unsupported');
+      if (enableNotifications) setEnableNotifications(false);
+      return;
+    }
+    const permission = window.Notification.permission;
+    setNotificationPermission(permission);
+    if (permission !== 'granted' && enableNotifications) {
+      setEnableNotifications(false);
+    }
+  }, [enableNotifications, setEnableNotifications]);
+
+  async function setBrowserNotifications(next: boolean) {
+    if (!next) {
+      setEnableNotifications(false);
+      return;
+    }
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      setNotificationPermission('unsupported');
+      setEnableNotifications(false);
+      return;
+    }
+    if (window.Notification.permission === 'denied') {
+      setNotificationPermission('denied');
+      setEnableNotifications(false);
+      return;
+    }
+    const permission =
+      window.Notification.permission === 'granted'
+        ? 'granted'
+        : await window.Notification.requestPermission();
+    setNotificationPermission(permission);
+    setEnableNotifications(permission === 'granted');
+  }
+
+  function sendTestNotification() {
+    if (
+      typeof window === 'undefined'
+      || !('Notification' in window)
+      || window.Notification.permission !== 'granted'
+    ) {
+      return;
+    }
+    new window.Notification('PetroBrain notifications are on', {
+      body: 'You will be notified when an answer is ready.',
+      tag: 'petrobrain-notification-test',
+    });
+  }
+
+  const notificationUnavailable =
+    notificationPermission === 'unsupported' || notificationPermission === 'denied';
+  const notificationStatus =
+    notificationPermission === 'unsupported'
+      ? 'Notifications are unavailable in this browser.'
+      : notificationPermission === 'denied'
+        ? 'Notifications are blocked in your browser settings.'
+        : enableNotifications
+          ? 'Notifications are on.'
+          : 'Turn on notifications to receive answer-ready alerts.';
 
   function downloadJson() {
     if (!ownerKey) return;
@@ -364,7 +435,7 @@ export function SettingsClient() {
   if (!token || !principal) return <AuthGate />;
 
   return (
-    <main className="relative min-h-screen overflow-hidden">
+    <main className="relative min-h-screen overflow-x-hidden">
       <div
         aria-hidden
         className="pointer-events-none absolute -top-40 right-[-10%] h-[28rem] w-[28rem] rounded-full bg-primary-200/30 blur-3xl dark:bg-primary-800/20"
@@ -374,16 +445,16 @@ export function SettingsClient() {
         className="pointer-events-none absolute -bottom-40 left-[-10%] h-[28rem] w-[28rem] rounded-full bg-primary-100/40 blur-3xl dark:bg-primary-900/20"
       />
 
-      <div className="relative mx-auto max-w-6xl px-6 py-10">
-        <BackHeader />
+      <div className="relative mx-auto grid max-w-6xl grid-cols-1 gap-6 px-6 py-10 md:grid-cols-[14rem_minmax(0,1fr)]">
+        <aside className="md:sticky md:top-8 md:self-start">
+          <BackHeader />
 
-        <header className="mt-4 mb-6">
-          <h1 className="bg-gradient-to-br from-neutral-900 to-neutral-600 bg-clip-text text-3xl font-semibold tracking-tight text-transparent dark:from-neutral-100 dark:to-neutral-400 sm:text-4xl">
-            Settings
-          </h1>
-        </header>
+          <header className="mt-4 mb-6">
+            <h1 className="bg-gradient-to-br from-neutral-900 to-neutral-600 bg-clip-text text-3xl font-semibold tracking-tight text-transparent dark:from-neutral-100 dark:to-neutral-400 sm:text-4xl">
+              Settings
+            </h1>
+          </header>
 
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-[14rem_minmax(0,1fr)]">
           <nav className="space-y-0.5" aria-label="Settings sections">
             {SECTIONS.map((sec) => {
               const active = section === sec.key;
@@ -419,8 +490,9 @@ export function SettingsClient() {
               );
             })}
           </nav>
+        </aside>
 
-          <section className="min-w-0 rounded-2xl border border-neutral-200/70 bg-white/80 p-5 shadow-brand-sm backdrop-blur dark:border-neutral-800/70 dark:bg-neutral-900/70 sm:p-6">
+        <section className="min-w-0 rounded-2xl border border-neutral-200/70 bg-white/80 p-5 shadow-brand-sm backdrop-blur dark:border-neutral-800/70 dark:bg-neutral-900/70 sm:p-6 md:mt-36">
             {section === 'general' ? (
               <>
                 <SectionHeader title="General" subtitle="Tune how PetroBrain looks and behaves." />
@@ -487,7 +559,7 @@ export function SettingsClient() {
                     id="display-name"
                     value={s.displayName}
                     onChange={(e) => s.setDisplayName(e.target.value)}
-                    placeholder={principal.userId}
+                    placeholder={accountName}
                     className="h-11 w-full rounded-xl border border-neutral-200 bg-white px-3.5 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all hover:border-primary-300 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder-neutral-500 dark:hover:border-primary-600 dark:focus:border-primary-500 dark:focus:ring-primary-800"
                   />
                 </Field>
@@ -504,10 +576,10 @@ export function SettingsClient() {
                     className="h-11 w-full rounded-xl border border-neutral-200 bg-white px-3.5 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all hover:border-primary-300 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder-neutral-500 dark:hover:border-primary-600 dark:focus:border-primary-500 dark:focus:ring-primary-800"
                   />
                 </Field>
-                <Field label="Account identity" description="Read-only - comes from your JWT.">
+                <Field label="Account identity" description="Managed by your workspace.">
                   <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 rounded-xl border border-neutral-100 bg-neutral-50/60 p-3 text-[11px] dark:border-neutral-800 dark:bg-neutral-900/60">
                     <span className="font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">User</span>
-                    <span className="truncate font-mono text-neutral-800 dark:text-neutral-200">{principal.userId}</span>
+                    <span className="truncate font-mono text-neutral-800 dark:text-neutral-200">{accountName}</span>
                     <span className="font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">Role</span>
                     <span className="text-neutral-800 dark:text-neutral-200">{principal.role}</span>
                     <span className="font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">Tenant</span>
@@ -591,11 +663,10 @@ export function SettingsClient() {
                 </Field>
                 <Field
                   label="Retention"
-                  description="Chats and projects are stored in your browser's localStorage."
+                  description="Chats and projects stay on this device."
                 >
                   <p className="rounded-xl border border-neutral-100 bg-neutral-50/60 px-3 py-2 text-[11px] leading-relaxed text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-400">
-                    Clearing browser storage will remove your local chat history. PetroBrain does
-                    not back this up server-side in the Tier-A console.
+                    Clearing site data will remove local chat history from this browser.
                   </p>
                 </Field>
               </>
@@ -606,18 +677,36 @@ export function SettingsClient() {
                 <SectionHeader title="Notifications" subtitle="Get pinged when long-running answers complete." />
                 <Field
                   label="Browser notifications"
-                  description="Notify me when an answer finishes streaming after I switch tabs."
+                  description="Notify me when an answer finishes while PetroBrain is in another tab."
                 >
-                  <div className="flex justify-end">
+                  <div className="flex items-center justify-end gap-3">
+                    {enableNotifications && notificationPermission === 'granted' ? (
+                      <button
+                        type="button"
+                        onClick={sendTestNotification}
+                        className="inline-flex h-9 items-center rounded-full border border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 transition-colors hover:border-primary-300 hover:text-primary-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:border-primary-600 dark:hover:text-primary-300"
+                      >
+                        Send test
+                      </button>
+                    ) : null}
                     <Toggle
                       label="Enable notifications"
-                      checked={s.enableNotifications}
-                      onChange={s.setEnableNotifications}
-                      disabled
+                      checked={enableNotifications}
+                      onChange={(next) => void setBrowserNotifications(next)}
+                      disabled={notificationUnavailable}
                     />
                   </div>
                 </Field>
-                <StubBanner feature="Notifications" />
+                <p
+                  className={clsx(
+                    'rounded-2xl border px-4 py-3 text-sm leading-relaxed',
+                    notificationPermission === 'denied'
+                      ? 'border-danger-border bg-danger-bg text-danger-fg dark:border-danger-border/40 dark:bg-danger-fg/20 dark:text-danger-bg'
+                      : 'border-neutral-200 bg-neutral-50/80 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-300',
+                  )}
+                >
+                  {notificationStatus}
+                </p>
               </>
             ) : null}
 
@@ -630,15 +719,7 @@ export function SettingsClient() {
 
             {section === 'account' ? (
               <>
-                <SectionHeader title="Account" subtitle="Connection and sign-out." />
-                <Field
-                  label="API base URL"
-                  description="Where the chat surface posts to. Read-only - set via the host."
-                >
-                  <span className="inline-flex rounded-xl border border-neutral-100 bg-neutral-50/60 px-3 py-2 text-xs font-medium text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-200">
-                    {apiBaseUrl}
-                  </span>
-                </Field>
+                <SectionHeader title="Account" subtitle="Session and preferences." />
                 <Field
                   label="Session"
                   description="Your browser has an active sign-in session."
@@ -647,7 +728,7 @@ export function SettingsClient() {
                     Signed in
                   </span>
                 </Field>
-                <Field label="Sign out" description="Clears the JWT from this browser session.">
+                <Field label="Sign out" description="Signs out on this browser.">
                   <div className="flex justify-end">
                     <button
                       type="button"
@@ -678,7 +759,6 @@ export function SettingsClient() {
             ) : null}
           </section>
         </div>
-      </div>
     </main>
   );
 }

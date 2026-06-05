@@ -7,7 +7,7 @@ export type SendShortcut = 'enter' | 'shift_enter';
 export type Theme = 'light' | 'dark' | 'system';
 
 export interface AppSettings {
-  /** Friendly name used in the greeting; falls back to the JWT userId. */
+  /** Friendly name used in the greeting; falls back to the signed-in account. */
   displayName: string;
   /** What PetroBrain should call the user - overrides displayName in greetings if set. */
   callMeName: string;
@@ -19,7 +19,7 @@ export interface AppSettings {
   defaultModule: Module;
   /** Whether to render markdown in answers (kept on by default). */
   renderMarkdown: boolean;
-  /** Browser notification on long-running answer completion (stub for now). */
+  /** Browser notification on long-running answer completion. */
   enableNotifications: boolean;
   /** Visual theme; 'system' follows the OS preference. */
   theme: Theme;
