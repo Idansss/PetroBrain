@@ -11,7 +11,7 @@ import { buildSnapshot, mintShare, shareUrlFor, ShareApiError } from '@/lib/chat
 import { isCanvasWorthy } from '@/lib/chat/canvas';
 import { useProjectsStore } from '@/lib/chat/projects';
 import { useSettingsStore } from '@/lib/chat/settings';
-import { streamChat, type StreamEvent } from '@/lib/chat/streamChat';
+import { SessionExpiredError, streamChat, type StreamEvent } from '@/lib/chat/streamChat';
 import { submitFeedback } from '@/lib/chat/feedback';
 
 import { AuthGate } from './components/AuthGate';
@@ -48,6 +48,7 @@ export function ChatClient() {
   const forceCanvasNext = useChatStore((s) => s.forceCanvasNext);
   const setForceCanvasNext = useChatStore((s) => s.setForceCanvasNext);
   const sidebarCollapsed = useChatStore((s) => s.sidebarCollapsed);
+  const expireSession = useChatStore((s) => s.expireSession);
 
   const ownerKey = useMemo(() => ownerKeyOf(principal), [principal]);
 
@@ -319,6 +320,7 @@ export function ChatClient() {
       } catch (e) {
         const wasUserAbort =
           e instanceof DOMException && e.name === 'AbortError';
+        const sessionExpired = e instanceof SessionExpiredError;
         if (wasUserAbort) {
           // User clicked Stop. Keep whatever text streamed in, mark the
           // assistant turn finished, and don't surface a red error banner -
@@ -329,6 +331,19 @@ export function ChatClient() {
               : m,
           );
           setMessagesInStore(convoId!, workingMessages, ownerKey);
+        } else if (sessionExpired) {
+          // Token is no longer valid. Mark the half-streamed assistant turn
+          // as finished (no red error chip), clear the session so the
+          // AuthGate kicks in, and let the signin page surface a friendly
+          // "your session expired" banner via the store flag. The user
+          // never sees the raw '401: token expired' payload.
+          workingMessages = workingMessages.map((m) =>
+            m.id === assistantId && m.role === 'assistant'
+              ? { ...m, streaming: false }
+              : m,
+          );
+          setMessagesInStore(convoId!, workingMessages, ownerKey);
+          expireSession(e.reason);
         } else {
           const detail = e instanceof Error ? e.message : String(e);
           setError(detail);

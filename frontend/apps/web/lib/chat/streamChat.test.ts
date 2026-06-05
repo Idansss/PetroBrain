@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { consumeSse, type StreamEvent } from './streamChat.js';
+import {
+  consumeSse,
+  SessionExpiredError,
+  sessionExpiredKind,
+  type StreamEvent,
+} from './streamChat.js';
 
 function makeStream(chunks: string[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -67,5 +72,53 @@ describe('consumeSse', () => {
     const out: StreamEvent[] = [];
     await consumeSse(stream, (e) => out.push(e));
     expect(out).toEqual([{ event: 'token', data: { text: 'ok' } }]);
+  });
+});
+
+/**
+ * Classification of the 401 detail shapes used by app/api/deps.py::get_principal.
+ * Keeps the frontend's "session expired" detection in sync with what the
+ * backend actually says, so an admin tweaking the detail strings on the
+ * server can't silently break the polish flow.
+ */
+describe('sessionExpiredKind', () => {
+  it('classifies a 401 token-expired payload as expired', () => {
+    expect(sessionExpiredKind(401, '{"detail":"token expired"}')).toBe('expired');
+  });
+
+  it('classifies a 401 token-revoked payload as revoked', () => {
+    expect(sessionExpiredKind(401, '{"detail":"token revoked"}')).toBe('revoked');
+  });
+
+  it('classifies invalid / missing credentials as invalid', () => {
+    expect(sessionExpiredKind(401, '{"detail":"invalid credentials"}')).toBe('invalid');
+    expect(sessionExpiredKind(401, '{"detail":"missing credentials"}')).toBe('invalid');
+  });
+
+  it('returns null for an unrecognised 401 detail string', () => {
+    expect(sessionExpiredKind(401, '{"detail":"some other 401 reason"}')).toBeNull();
+  });
+
+  it('returns null for non-401 status codes even when the detail says expired', () => {
+    expect(sessionExpiredKind(500, '{"detail":"token expired"}')).toBeNull();
+    expect(sessionExpiredKind(403, '{"detail":"token expired"}')).toBeNull();
+  });
+
+  it('handles a missing detail body gracefully', () => {
+    expect(sessionExpiredKind(401, '')).toBeNull();
+  });
+});
+
+describe('SessionExpiredError', () => {
+  it('carries the classification reason so the UI can show specific copy', () => {
+    const err = new SessionExpiredError('revoked');
+    expect(err).toBeInstanceOf(Error);
+    expect(err.reason).toBe('revoked');
+    expect(err.name).toBe('SessionExpiredError');
+  });
+
+  it('defaults to expired when no reason is supplied', () => {
+    const err = new SessionExpiredError();
+    expect(err.reason).toBe('expired');
   });
 });

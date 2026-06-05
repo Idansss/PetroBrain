@@ -53,6 +53,13 @@ interface ChatStoreState {
    * while the persisted token is still being read.
    */
   hasHydrated: boolean;
+  /**
+   * Set when the backend tells us the JWT is no longer valid (expired,
+   * revoked, etc). The signin page reads this and surfaces a friendly
+   * "your session expired" banner instead of the user wondering why they
+   * suddenly have to re-authenticate. Cleared on successful sign-in.
+   */
+  sessionExpiredReason: 'expired' | 'revoked' | 'invalid' | null;
   setToken: (token: string | null) => void;
   setModule: (m: Module) => void;
   setAssetContext: (asset: string | null) => void;
@@ -60,6 +67,14 @@ interface ChatStoreState {
   setWebSearchEnabled: (enabled: boolean) => void;
   setForceCanvasNext: (force: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
+  /**
+   * Convenience: clear the JWT AND remember why so the signin page can
+   * show the right banner. ChatClient calls this when a request fails
+   * with 401 / token-expired so the user never sees raw error JSON.
+   */
+  expireSession: (reason: 'expired' | 'revoked' | 'invalid') => void;
+  /** Called by AuthForm on successful sign-in to clear the banner. */
+  clearSessionExpired: () => void;
 }
 
 /**
@@ -80,6 +95,7 @@ export const useChatStore = create<ChatStoreState>()(
       forceCanvasNext: false,
       sidebarCollapsed: false,
       hasHydrated: false,
+      sessionExpiredReason: null,
       setToken: (token) => set({ token, principal: decodePrincipal(token) }),
       setModule: (module) => set({ module }),
       setAssetContext: (assetContext) => set({ assetContext }),
@@ -87,6 +103,9 @@ export const useChatStore = create<ChatStoreState>()(
       setWebSearchEnabled: (webSearchEnabled) => set({ webSearchEnabled }),
       setForceCanvasNext: (forceCanvasNext) => set({ forceCanvasNext }),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+      expireSession: (reason) =>
+        set({ token: null, principal: null, sessionExpiredReason: reason }),
+      clearSessionExpired: () => set({ sessionExpiredReason: null }),
     }),
     {
       name: 'petrobrain-chat',

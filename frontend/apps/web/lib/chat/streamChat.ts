@@ -59,6 +59,18 @@ export interface StreamChatOptions {
  * Multiple events may arrive in a single chunk; the parser holds a
  * buffer and only flushes a complete record (blank line terminator).
  */
+/**
+ * Specific error class for the case where the JWT is no longer valid.
+ * Callers should clear the session and route to sign-in rather than show
+ * the raw '401: token expired' string to the user.
+ */
+export class SessionExpiredError extends Error {
+  constructor(public readonly reason: 'expired' | 'revoked' | 'invalid' = 'expired') {
+    super('session expired');
+    this.name = 'SessionExpiredError';
+  }
+}
+
 export async function streamChat({ baseUrl, token, body, signal, onEvent }: StreamChatOptions): Promise<void> {
   const url = new URL('/chat', baseUrl);
   url.searchParams.set('stream', 'true');
@@ -75,9 +87,38 @@ export async function streamChat({ baseUrl, token, body, signal, onEvent }: Stre
   const resp = await fetch(url.toString(), init);
   if (!resp.ok || !resp.body) {
     const detail = await safeText(resp);
+    const expiryKind = sessionExpiredKind(resp.status, detail);
+    if (expiryKind) {
+      throw new SessionExpiredError(expiryKind);
+    }
     throw new Error(`chat stream failed (${resp.status}): ${detail}`);
   }
   await consumeSse(resp.body, onEvent);
+}
+
+/**
+ * Detect the 401 shapes the backend uses when the JWT is no longer valid.
+ * Centralised so other callers (feedback, share, future endpoints) can
+ * reuse the same classification without parsing strings inline.
+ *
+ * Backend shapes (see app/api/deps.py::get_principal):
+ *   - {"detail":"token expired"}          - signature valid, exp passed
+ *   - {"detail":"token revoked"}          - /auth/logout pushed jti to the
+ *                                           revocation set
+ *   - {"detail":"invalid credentials"}    - signature failed / bad claims
+ *   - {"detail":"missing credentials"}    - no Authorization header
+ */
+export function sessionExpiredKind(
+  status: number, detail: string,
+): 'expired' | 'revoked' | 'invalid' | null {
+  if (status !== 401) return null;
+  const lower = (detail || '').toLowerCase();
+  if (lower.includes('token expired')) return 'expired';
+  if (lower.includes('revoked')) return 'revoked';
+  if (lower.includes('invalid credentials') || lower.includes('missing credentials')) {
+    return 'invalid';
+  }
+  return null;
 }
 
 export async function consumeSse(

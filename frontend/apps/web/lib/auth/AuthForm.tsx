@@ -55,10 +55,27 @@ const COPY: Record<AuthMode, {
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const MIN_PASSWORD_LENGTH = 8;
 
+/**
+ * User-facing message for the "we just signed you out because your token
+ * is no longer valid" banner on the signin page. Tone is informative, not
+ * alarming - this is a normal end-of-day event, not an incident.
+ */
+function sessionExpiredCopy(reason: 'expired' | 'revoked' | 'invalid'): string {
+  if (reason === 'revoked') {
+    return 'Your session was ended by an admin or by signing out elsewhere. Sign in again to continue.';
+  }
+  if (reason === 'invalid') {
+    return 'Your sign-in is no longer valid. Sign in again to continue.';
+  }
+  return 'Your session expired - sign in again to continue.';
+}
+
 export function AuthForm({ mode }: AuthFormProps) {
   const router = useRouter();
   const apiBaseUrl = useChatStore((s) => s.apiBaseUrl);
   const setToken = useChatStore((s) => s.setToken);
+  const sessionExpiredReason = useChatStore((s) => s.sessionExpiredReason);
+  const clearSessionExpired = useChatStore((s) => s.clearSessionExpired);
   const setCallMeName = useSettingsStore((s) => s.setCallMeName);
   const copy = COPY[mode];
 
@@ -114,6 +131,7 @@ export function AuthForm({ mode }: AuthFormProps) {
         ? await signup(apiBaseUrl, { email: email.trim(), password }, controller.signal)
         : await signin(apiBaseUrl, { email: email.trim(), password }, controller.signal);
       setToken(res.token);
+      clearSessionExpired();
       // Capture the signup name in the same settings field the sidebar pill
       // already prefers over the auto-generated user_id, so the user sees
       // their name straight after creating the account.
@@ -249,6 +267,15 @@ export function AuthForm({ mode }: AuthFormProps) {
                 className="h-11 w-full rounded-xl border border-neutral-200 bg-white px-3.5 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all hover:border-primary-300 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder-neutral-500 dark:hover:border-primary-600 dark:focus:border-primary-500 dark:focus:ring-primary-800"
               />
             </div>
+          ) : null}
+
+          {mode === 'signin' && sessionExpiredReason && !error ? (
+            <p
+              role="status"
+              className="rounded-xl border border-primary-200 bg-primary-50/70 px-3 py-2 text-xs font-medium text-primary-700 dark:border-primary-700/40 dark:bg-primary-900/30 dark:text-primary-200"
+            >
+              {sessionExpiredCopy(sessionExpiredReason)}
+            </p>
           ) : null}
 
           {error ? (
