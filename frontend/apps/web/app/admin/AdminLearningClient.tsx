@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { Badge, Banner, Button, Card, Logo } from '@petrobrain/ui';
@@ -78,6 +78,9 @@ export function AdminLearningClient() {
     <LearningView
       token={token}
       apiBaseUrl={apiBaseUrl}
+      role={principal.role}
+      tenantId={principal.tenantId}
+      userId={principal.userId}
       onSessionExpired={() => expireSession('expired')}
       onBack={() => router.push('/chat')}
     />
@@ -87,11 +90,17 @@ export function AdminLearningClient() {
 function LearningView({
   token,
   apiBaseUrl,
+  role,
+  tenantId,
+  userId,
   onSessionExpired,
   onBack,
 }: {
   token: string;
   apiBaseUrl: string;
+  role: string;
+  tenantId: string;
+  userId: string;
   onSessionExpired: () => void;
   onBack: () => void;
 }) {
@@ -143,14 +152,14 @@ function LearningView({
       feedbackTrend.error, memoryTrend.error, glossary.error, onSessionExpired]);
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-white via-white to-primary-50/20 dark:from-neutral-950 dark:via-neutral-950 dark:to-primary-900/10">
-      <header className="border-b border-neutral-200 bg-white/80 backdrop-blur dark:border-neutral-800 dark:bg-neutral-950/80">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-          <div className="flex items-center gap-3">
+    <main className="min-h-screen bg-gradient-to-b from-white via-white to-primary-50/30 dark:from-neutral-950 dark:via-neutral-950 dark:to-primary-900/20">
+      <header className="sticky top-0 z-30 border-b border-neutral-200/60 bg-white/70 backdrop-blur-xl dark:border-neutral-800/60 dark:bg-neutral-950/70">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-6 py-3">
+          <div className="flex min-w-0 items-center gap-3">
             <button
               type="button"
               onClick={onBack}
-              className="inline-flex h-9 items-center gap-2 rounded-full border border-neutral-200 bg-white px-3 text-sm font-medium text-neutral-700 hover:border-primary-300 hover:text-primary-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+              className="inline-flex h-9 items-center gap-1.5 rounded-full border border-neutral-200/70 bg-white/80 px-3 text-sm font-medium text-neutral-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)] backdrop-blur transition-all hover:border-primary-300 hover:bg-white hover:text-primary-700 hover:shadow-[0_4px_12px_-4px_rgba(234,88,12,0.25)] dark:border-neutral-700/70 dark:bg-neutral-900/70 dark:text-neutral-200 dark:hover:border-primary-600 dark:hover:bg-neutral-900 dark:hover:text-primary-300"
               aria-label="Back to chat"
             >
               <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
@@ -158,22 +167,38 @@ function LearningView({
               </svg>
               Chat
             </button>
-            <span className="hidden text-sm text-neutral-500 md:inline">
-              PetroBrain - Admin
-            </span>
+            <div className="flex min-w-0 items-center gap-2">
+              <Logo size={28} glow />
+              <div className="flex min-w-0 flex-col leading-tight">
+                <span className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                  PetroBrain - Admin
+                </span>
+                <span className="hidden text-[10px] font-medium uppercase tracking-[0.14em] text-primary-600 dark:text-primary-400 md:inline">
+                  Learning Console
+                </span>
+              </div>
+            </div>
           </div>
+          <RoleBadge role={role} tenantId={tenantId} userId={userId} />
         </div>
       </header>
 
       <div className="mx-auto max-w-6xl space-y-6 p-6">
-        <header className="space-y-1">
-          <h1 className="text-2xl font-semibold text-neutral-800 dark:text-neutral-100">
-            Learning
-          </h1>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">
-            What the system has learned from your team&apos;s feedback - scoped
-            to your tenant, never shared across tenants.
-          </p>
+        <header className="relative isolate overflow-hidden rounded-3xl border border-primary-200/60 bg-gradient-to-br from-primary-50/80 via-white to-white p-6 shadow-[0_18px_45px_-18px_rgba(234,88,12,0.22),inset_0_1px_0_rgba(255,255,255,0.5)] dark:border-primary-800/40 dark:from-primary-900/30 dark:via-neutral-900 dark:to-neutral-900">
+          <div className="absolute -right-16 -top-16 h-48 w-48 rounded-full bg-primary-200/40 blur-3xl dark:bg-primary-700/20" aria-hidden />
+          <div className="relative space-y-1.5">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary-200 bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-primary-700 dark:border-primary-700/40 dark:bg-primary-900/30 dark:text-primary-200">
+              <span className="h-1 w-1 rounded-full bg-primary-500" aria-hidden />
+              Learning
+            </span>
+            <h1 className="text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
+              What your team is teaching the system
+            </h1>
+            <p className="max-w-2xl text-sm text-neutral-600 dark:text-neutral-400">
+              Feedback, memory, and retrieval signal - scoped to your tenant,
+              never shared across tenants.
+            </p>
+          </div>
         </header>
 
         <SummaryCards
@@ -224,6 +249,191 @@ function LearningView({
 
 // ---- Summary cards -----------------------------------------------------
 
+// ---- Role badge --------------------------------------------------------
+
+/**
+ * Pill in the top-right that makes the admin's identity + tenant explicit.
+ * This is the "add auth to the admin page" follow-up: the page WAS gated
+ * before (non-admin -> /chat redirect) but the gating was invisible. Now
+ * the admin always sees who they're acting as. Also clarifies why a
+ * platform_admin sees the same view across tenants - they're identified
+ * with a distinct gradient pill.
+ */
+function RoleBadge({
+  role,
+  tenantId,
+  userId,
+}: {
+  role: string;
+  tenantId: string;
+  userId: string;
+}) {
+  const isPlatform = role === 'platform_admin';
+  return (
+    <div
+      className={
+        isPlatform
+          ? 'inline-flex items-center gap-2 rounded-full border border-primary-300 bg-gradient-to-r from-primary-100/80 to-primary-200/40 px-3 py-1 text-xs font-medium text-primary-900 shadow-[0_4px_14px_-4px_rgba(234,88,12,0.35),inset_0_1px_0_rgba(255,255,255,0.5)] dark:border-primary-600/60 dark:from-primary-700/40 dark:to-primary-800/30 dark:text-primary-100'
+          : 'inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white/90 px-3 py-1 text-xs font-medium text-neutral-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)] dark:border-neutral-700 dark:bg-neutral-900/80 dark:text-neutral-200'
+      }
+      title={`Signed in as ${userId} (${role}) - tenant ${tenantId}`}
+    >
+      <span
+        className={
+          isPlatform
+            ? 'h-2 w-2 rounded-full bg-primary-500 shadow-[0_0_8px_rgba(234,88,12,0.6)]'
+            : 'h-2 w-2 rounded-full bg-green-500'
+        }
+        aria-hidden
+      />
+      <span className="font-semibold uppercase tracking-[0.06em]">
+        {isPlatform ? 'Platform admin' : 'Tenant admin'}
+      </span>
+      <span className="hidden text-neutral-500 dark:text-neutral-400 sm:inline">
+        · {tenantId}
+      </span>
+    </div>
+  );
+}
+
+// ---- Custom dropdown (replaces native <select>) -----------------------
+
+/**
+ * Brand-styled dropdown for MemoryKind. Replaces native <select> so the
+ * dropdown shell, hover/active states, and popover all use the PetroBrain
+ * palette instead of the OS's grey-on-grey rendering.
+ *
+ * Keyboard accessibility intentionally minimal (Esc to close, click out to
+ * close). The choices are a fixed 3-element set, so arrow-key navigation
+ * is a nice-to-have we haven't paid for yet.
+ */
+function KindDropdown({
+  id,
+  value,
+  onChange,
+  label,
+}: {
+  id?: string;
+  value: MemoryKind;
+  onChange: (k: MemoryKind) => void;
+  label: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointer(e: MouseEvent) {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  // Note: deliberately NOT using aria-haspopup="listbox" / role="option" /
+  // aria-selected here. Those ARIA roles require a particular DOM
+  // contract (role=listbox parent, role=option children, aria-activedescendant
+  // pattern) that our 3-button popup doesn't pay for fully. The static
+  // analyser flags any partial implementation as an a11y error, and a
+  // partial ARIA contract is worse than none. The dropdown remains
+  // keyboard-accessible (buttons are focusable, Esc closes, click-outside
+  // closes) and screen readers announce each button's label correctly.
+  return (
+    <div ref={rootRef} className="relative mt-1">
+      <button
+        id={id}
+        type="button"
+        aria-label={`${label}: ${value}`}
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between rounded-xl border border-neutral-200 bg-white/90 px-3 py-2 text-sm font-medium text-neutral-800 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all hover:border-primary-300 hover:text-primary-700 focus:outline-none focus-visible:border-primary-400 focus-visible:ring-2 focus-visible:ring-primary-200 dark:border-neutral-700 dark:bg-neutral-900/80 dark:text-neutral-100 dark:hover:border-primary-600 dark:focus-visible:border-primary-500 dark:focus-visible:ring-primary-800"
+      >
+        <span className="flex items-center gap-2">
+          <KindGlyph kind={value} />
+          <span className="capitalize">{value}</span>
+        </span>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 20 20"
+          fill="none"
+          aria-hidden
+          className={`transition-transform ${open ? 'rotate-180' : ''}`}
+        >
+          <path d="M5 8l5 5 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {open ? (
+        <div
+          aria-label={label}
+          className="absolute left-0 right-0 z-30 mt-1 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-[0_18px_45px_-12px_rgba(15,23,42,0.18),0_4px_10px_-2px_rgba(15,23,42,0.08)] dark:border-neutral-700 dark:bg-neutral-900"
+        >
+          {MEMORY_KINDS.map((k) => {
+            const selected = k === value;
+            return (
+              <button
+                key={k}
+                type="button"
+                onClick={() => {
+                  onChange(k);
+                  setOpen(false);
+                }}
+                className={
+                  selected
+                    ? 'flex w-full items-center gap-2.5 bg-primary-50/70 px-3 py-2 text-left text-sm font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-200'
+                    : 'flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-primary-50/60 hover:text-primary-700 dark:text-neutral-200 dark:hover:bg-primary-900/30 dark:hover:text-primary-200'
+                }
+              >
+                <KindGlyph kind={k} />
+                <span className="flex-1 capitalize">{k}</span>
+                {selected ? (
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden>
+                    <path d="M4 10.5L8 14.5L16 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function KindGlyph({ kind }: { kind: MemoryKind }) {
+  if (kind === 'terminology') {
+    // Book / glossary glyph.
+    return (
+      <svg width="13" height="13" viewBox="0 0 20 20" fill="none" aria-hidden className="text-primary-600 dark:text-primary-400">
+        <path d="M4 4h6a2 2 0 012 2v10H6a2 2 0 01-2-2V4z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+        <path d="M16 4h-6a2 2 0 00-2 2v10h6a2 2 0 002-2V4z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (kind === 'preference') {
+    return (
+      <svg width="13" height="13" viewBox="0 0 20 20" fill="none" aria-hidden className="text-primary-600 dark:text-primary-400">
+        <path d="M10 3l2.4 4.9 5.4.8-3.9 3.8.9 5.4L10 15.4 5.2 17.9l.9-5.4-3.9-3.8 5.4-.8L10 3z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  // context
+  return (
+    <svg width="13" height="13" viewBox="0 0 20 20" fill="none" aria-hidden className="text-primary-600 dark:text-primary-400">
+      <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M10 6.5v4M10 13.5v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function SummaryCards({
   feedbackTotal,
   feedbackUp,
@@ -237,26 +447,31 @@ function SummaryCards({
   activeMemories: number;
   weightedChunks: number;
 }) {
+  const netSignal = feedbackUp - feedbackDown;
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
       <SummaryCard
+        accent="primary"
         title="Feedback collected"
         primary={feedbackTotal.toLocaleString()}
         secondary={`👍 ${feedbackUp.toLocaleString()} · 👎 ${feedbackDown.toLocaleString()}`}
       />
       <SummaryCard
+        accent="neutral"
         title="Active memories"
         primary={activeMemories.toLocaleString()}
         secondary="Injected into every chat turn"
       />
       <SummaryCard
+        accent="neutral"
         title="Weighted chunks"
         primary={weightedChunks.toLocaleString()}
         secondary="Retrieval rank nudged by feedback"
       />
       <SummaryCard
+        accent={netSignal >= 0 ? 'positive' : 'negative'}
         title="Net signal"
-        primary={`${feedbackUp - feedbackDown >= 0 ? '+' : ''}${feedbackUp - feedbackDown}`}
+        primary={`${netSignal >= 0 ? '+' : ''}${netSignal}`}
         secondary={
           feedbackTotal > 0
             ? `${Math.round((feedbackUp / feedbackTotal) * 100)}% positive`
@@ -271,13 +486,28 @@ function SummaryCard({
   title,
   primary,
   secondary,
+  accent = 'neutral',
 }: {
   title: string;
   primary: string;
   secondary: string;
+  accent?: 'primary' | 'neutral' | 'positive' | 'negative';
 }) {
+  // Subtle accent stripe on the top edge of each card so the eye can
+  // sweep across the row and pick out the categories without the values
+  // being bigger or louder than they need to be.
+  const accentStripe =
+    accent === 'primary'
+      ? 'before:bg-gradient-to-r before:from-primary-400 before:to-primary-600'
+      : accent === 'positive'
+        ? 'before:bg-gradient-to-r before:from-emerald-400 before:to-green-600'
+        : accent === 'negative'
+          ? 'before:bg-gradient-to-r before:from-rose-400 before:to-red-600'
+          : 'before:bg-gradient-to-r before:from-neutral-300 before:to-neutral-400 dark:before:from-neutral-700 dark:before:to-neutral-600';
   return (
-    <div className="rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+    <div
+      className={`group relative overflow-hidden rounded-2xl border border-neutral-200/70 bg-white/90 p-4 shadow-[0_2px_4px_rgba(15,23,42,0.04)] backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-primary-200 hover:shadow-[0_18px_45px_-18px_rgba(234,88,12,0.18)] dark:border-neutral-800/70 dark:bg-neutral-900/70 dark:hover:border-primary-700/40 before:absolute before:left-0 before:right-0 before:top-0 before:h-[3px] ${accentStripe}`}
+    >
       <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-neutral-500 dark:text-neutral-400">
         {title}
       </p>
@@ -617,25 +847,17 @@ function PromoteDialog({
           className="mt-1 w-full rounded-md border border-neutral-300 p-2 text-sm focus:border-primary-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
         />
         <div className="mt-1 text-right text-[10px] text-neutral-400">{body.length} / 280</div>
-        <label
-          htmlFor={`promote-kind-${row.id}`}
-          className="mt-2 block text-xs font-medium uppercase tracking-[0.06em] text-neutral-500"
-        >
-          Kind
-        </label>
-        <select
-          id={`promote-kind-${row.id}`}
-          aria-label="Memory kind"
-          value={kind}
-          onChange={(e) => setKind(e.target.value as MemoryKind)}
-          className="mt-1 w-full rounded-md border border-neutral-300 p-2 text-sm dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
-        >
-          {MEMORY_KINDS.map((k) => (
-            <option key={k} value={k}>
-              {k}
-            </option>
-          ))}
-        </select>
+        <div className="mt-2">
+          <p className="block text-xs font-medium uppercase tracking-[0.06em] text-neutral-500">
+            Kind
+          </p>
+          <KindDropdown
+            id={`promote-kind-${row.id}`}
+            value={kind}
+            onChange={setKind}
+            label="Memory kind"
+          />
+        </div>
         {error ? <p className="mt-2 text-xs text-danger-fg">{error}</p> : null}
         <div className="mt-4 flex items-center justify-end gap-2">
           <Button variant="ghost" onClick={onCancel} disabled={submitting}>
@@ -752,18 +974,13 @@ function MemorySection({
               className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm focus:border-primary-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
             />
           </div>
-          <select
-            aria-label="New memory kind"
-            value={newKind}
-            onChange={(e) => setNewKind(e.target.value as MemoryKind)}
-            className="rounded-md border border-neutral-300 px-2 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
-          >
-            {MEMORY_KINDS.map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-          </select>
+          <div className="w-[10rem]">
+            <KindDropdown
+              value={newKind}
+              onChange={setNewKind}
+              label="New memory kind"
+            />
+          </div>
           <Button
             onClick={() => {
               if (!newBody.trim()) {
