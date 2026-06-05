@@ -1083,7 +1083,15 @@ def _normalize_summary_key(value: str) -> str:
 def _clean_summary_part(value: Any) -> str:
     if value is None:
         return ""
-    text = " ".join(str(value).split())
+    text = str(value)
+    # First pass: drop markup that web crawlers sometimes pull into the
+    # snippet field. Tavily occasionally captures inline SVG sprites,
+    # data: URIs, and HTML attribute fragments as part of the snippet -
+    # the result is unreadable garbage like ``'/%3E%3Cpath d='M16.0001
+    # 7.9996c0 4.418...'`` arriving in the bullet text. Strip before the
+    # markdown / whitespace passes so what reaches the user is prose only.
+    text = _strip_markup_fragments(text)
+    text = " ".join(text.split())
     # Search snippets often contain raw page markdown ("###", "#", "**").
     # Strip those presentation markers before turning snippets into user copy.
     text = text.replace("#", "")
@@ -1091,6 +1099,59 @@ def _clean_summary_part(value: Any) -> str:
     text = text.replace("_", "")
     text = re.sub(r"\s+([:;,.])", r"\1", text)
     return text.strip()
+
+
+# Conservative markers for "this snippet contains leaked markup". Each
+# matches something a real prose answer almost never contains.
+_MARKUP_SIGNALS = (
+    "%3C",      # url-encoded '<'
+    "%3E",      # url-encoded '>'
+    "%23",      # url-encoded '#' (common in url(#gradientId))
+    "<svg",
+    "</svg",
+    "<path",
+    "<polygon",
+    "viewBox=",
+    "xmlns=",
+)
+
+
+def _strip_markup_fragments(text: str) -> str:
+    """Remove HTML / SVG / URL-encoded markup fragments while preserving the
+    surrounding prose. Conservative: only runs the expensive substitutions
+    when the cheap signal check fires, so well-formed snippets are untouched."""
+    if not any(signal in text for signal in _MARKUP_SIGNALS):
+        return text
+    import urllib.parse as _u
+
+    # 1) Decode common URL-encoded markup characters so the regex passes
+    #    below can see the actual tags. Only the markup-relevant codepoints
+    #    are touched so an unrelated %20 in a real URL isn't mangled.
+    decoded = text
+    for enc, dec in (("%3C", "<"), ("%3E", ">"), ("%23", "#")):
+        decoded = decoded.replace(enc, dec).replace(enc.lower(), dec)
+
+    # 2) Drop complete tags, orphan opening fragments (search-engine
+    #    snippets often truncate mid-tag), and SVG path-data attribute
+    #    payloads ("d='M16.0001 7.9996c0 4.418-3.5815...'").
+    decoded = re.sub(r"<[^>]*>", " ", decoded)              # complete tags
+    decoded = re.sub(r"</?\w+[^<]*$", " ", decoded)         # trailing half-tags
+    decoded = re.sub(r"\b\w+\s*=\s*'[^']*'", " ", decoded)  # attr='...'
+    decoded = re.sub(r'\b\w+\s*=\s*"[^"]*"', " ", decoded)  # attr="..."
+
+    # 3) Path data sometimes survives outside attribute quotes when the
+    #    snippet was truncated awkwardly. Matches a path command letter
+    #    followed by a clear digit/coord cluster - tight enough to avoid
+    #    eating a sentence that just happens to contain 'L 16'.
+    decoded = re.sub(
+        r"[MmLlHhVvCcSsQqTtAaZz](?:\s*[-+]?\d+(?:\.\d+)?){3,}",
+        " ",
+        decoded,
+    )
+
+    # 4) Stray quote / slash debris from the truncations above.
+    decoded = re.sub(r"[/']{2,}", " ", decoded)
+    return decoded
 
 
 def _truncate_words(value: str, max_words: int) -> str:
