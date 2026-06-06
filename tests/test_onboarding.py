@@ -213,6 +213,33 @@ def test_invitation_email_sent_when_delivery_configured(repos, monkeypatch):
     assert sent["raw_token"]
 
 
+def test_individual_workspace_blocked_from_company_admin(repos):
+    tenants, users, _, _, _ = repos
+    tenants.create(
+        id="indiv-a",
+        name="Personal workspace",
+        attributes={"account_type": "individual", "onboarding_status": "completed"},
+    )
+    users.signup(
+        tenant_id="indiv-a",
+        email="solo@example.com",
+        role="tenant_owner",
+        password_hash=hash_password("correcthorse1"),
+        id="solo",
+    )
+    h = headers(tenant="indiv-a", user="solo")
+    assert client.get("/organizations/current/members", headers=h).status_code == 403
+    assert client.get("/organizations/current/invitations", headers=h).status_code == 403
+    created = client.post(
+        "/organizations/current/invitations",
+        headers=h,
+        json={"email": "x@example.com", "role": "engineer"},
+    )
+    assert created.status_code == 403
+    # A company workspace owner is still allowed.
+    assert client.get("/organizations/current/members", headers=headers()).status_code == 200
+
+
 def test_invitation_acceptance_creates_membership(repos):
     _, users, _, _, _ = repos
     created = client.post(

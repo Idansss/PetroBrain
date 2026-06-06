@@ -597,11 +597,17 @@ async def remove_member(member_id: str, who: Principal = Depends(get_principal))
 
 
 def _require_company_admin(who: Principal, *, allow_auditor: bool = False) -> None:
-    if who.role == "platform_admin" or is_tenant_admin(who):
+    # Platform admins manage every tenant and bypass workspace-type checks.
+    if who.role == "platform_admin":
         return
-    if allow_auditor and who.role == "auditor":
-        return
-    raise HTTPException(status_code=403, detail="company admin role required")
+    if not (is_tenant_admin(who) or (allow_auditor and who.role == "auditor")):
+        raise HTTPException(status_code=403, detail="company admin role required")
+    # Individual workspaces have no company surface: an individual account owner
+    # is a tenant_owner and would otherwise pass the role check above. Block the
+    # whole company/organization admin API for them, not just the UI button.
+    tenant = _tenant_or_404(who.tenant_id)
+    if (tenant.get("attributes") or {}).get("account_type") == "individual":
+        raise HTTPException(status_code=403, detail="company workspace required")
 
 
 def _save_profile(
