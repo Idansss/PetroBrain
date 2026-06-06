@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import type { Route } from 'next';
+import Link from 'next/link';
 
 import { SKILLS, type SkillEntry } from '@/lib/chat/catalog';
 import { ownerKeyOf, useConversationsStore } from '@/lib/chat/conversations';
@@ -18,14 +20,6 @@ Due date:
 Context:
 Acceptance criteria:
 Next step:`;
-
-const DEEP_RESEARCH_PROMPT = `Run deep research on this topic.
-
-Research question:
-Scope:
-Sources to prioritize:
-Assumptions to verify:
-Deliverable format: executive summary, key findings, evidence, risks, and recommended next steps.`;
 
 export interface ComposerMenuProps {
   onAttachFiles: () => void;
@@ -49,7 +43,6 @@ export function ComposerMenu({
   const setWebSearchEnabled = useChatStore((s) => s.setWebSearchEnabled);
   const forceCanvasNext = useChatStore((s) => s.forceCanvasNext);
   const setForceCanvasNext = useChatStore((s) => s.setForceCanvasNext);
-  const setThinkingMode = useChatStore((s) => s.setThinkingMode);
   const module = useChatStore((s) => s.module);
   const principal = useChatStore((s) => s.principal);
 
@@ -185,15 +178,10 @@ export function ComposerMenu({
                 />
                 <Row
                   icon={<ResearchIcon />}
-                  label="Deep research mode"
-                  hint="Web search + extended thinking + canvas"
-                  onClick={() => {
-                    setWebSearchEnabled(true);
-                    setThinkingMode('extended');
-                    setForceCanvasNext(true);
-                    onApplyPrompt(DEEP_RESEARCH_PROMPT);
-                    close();
-                  }}
+                  label="Research workspace"
+                  hint="Plan approval + governed sources + evidence report"
+                  href={'/research' as Route}
+                  onClick={close}
                 />
                 <Row
                   icon={<SkillsIcon />}
@@ -383,6 +371,7 @@ function Row({
   shortcut,
   trailing,
   onClick,
+  href,
   disabled,
   hint,
 }: {
@@ -390,28 +379,48 @@ function Row({
   label: string;
   shortcut?: string;
   trailing?: React.ReactNode;
-  onClick: () => void;
+  onClick?: () => void;
+  href?: Route;
   disabled?: boolean;
   hint?: string | null;
 }) {
+  const content = (
+    <>
+      <span className="text-neutral-500 dark:text-neutral-400">{icon}</span>
+      <span className="flex-1 truncate">{label}</span>
+      {shortcut ? (
+        <span className="text-[10px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+          {shortcut}
+        </span>
+      ) : null}
+      {trailing}
+    </>
+  );
+  const className =
+    'flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-neutral-800 transition-colors hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-neutral-100 dark:hover:bg-neutral-800/60';
+
   return (
     <li>
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={disabled}
-        title={hint || undefined}
-        className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-neutral-800 transition-colors hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-neutral-100 dark:hover:bg-neutral-800/60"
-      >
-        <span className="text-neutral-500 dark:text-neutral-400">{icon}</span>
-        <span className="flex-1 truncate">{label}</span>
-        {shortcut ? (
-          <span className="text-[10px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-            {shortcut}
-          </span>
-        ) : null}
-        {trailing}
-      </button>
+      {href && !disabled ? (
+        <Link
+          href={href}
+          {...(onClick ? { onClick } : {})}
+          {...(hint ? { title: hint } : {})}
+          className={className}
+        >
+          {content}
+        </Link>
+      ) : (
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={disabled}
+          title={hint || undefined}
+          className={className}
+        >
+          {content}
+        </button>
+      )}
     </li>
   );
 }

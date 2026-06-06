@@ -59,6 +59,15 @@ WEB_SEARCH_TOOL: dict[str, Any] = {
                 "minimum": 1,
                 "maximum": HARD_MAX_RESULTS,
             },
+            "include_domains": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Optional approved-domain allowlist. When supplied, the provider "
+                    "and PetroBrain both restrict results to these domains."
+                ),
+                "maxItems": 20,
+            },
         },
         "required": ["query"],
     },
@@ -83,6 +92,7 @@ def run_web_search_tool(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(max_results, int) or max_results < 1:
         max_results = DEFAULT_MAX_RESULTS
     max_results = min(max_results, HARD_MAX_RESULTS)
+    include_domains = _normalize_domains(payload.get("include_domains"))
 
     settings = get_settings()
     api_key = (settings.tavily_api_key or "").strip()
@@ -105,6 +115,8 @@ def run_web_search_tool(payload: dict[str, Any]) -> dict[str, Any]:
         "include_answer": False,
         "include_raw_content": False,
     }
+    if include_domains:
+        body["include_domains"] = include_domains
 
     try:
         with httpx.Client(timeout=DEFAULT_TIMEOUT_S) as client:
@@ -143,10 +155,16 @@ def run_web_search_tool(payload: dict[str, Any]) -> dict[str, Any]:
     for item in raw_results[:max_results]:
         if not isinstance(item, dict):
             continue
+        url = _str_or_none(item.get("url"))
+        if include_domains and not _url_matches_domains(url, include_domains):
+            continue
         results.append({
             "title": _str_or_none(item.get("title")),
-            "url": _str_or_none(item.get("url")),
+            "url": url,
             "snippet": _truncate(_str_or_none(item.get("content")), 600),
+            "published_at": _str_or_none(
+                item.get("published_date") or item.get("published_at")
+            ),
         })
 
     return {
@@ -169,3 +187,30 @@ def _truncate(value: str | None, limit: int) -> str | None:
     if len(value) <= limit:
         return value
     return value[:limit].rstrip() + "..."
+
+
+def _normalize_domains(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    for item in value[:20]:
+        if not isinstance(item, str):
+            continue
+        domain = item.strip().lower()
+        domain = domain.removeprefix("https://").removeprefix("http://")
+        domain = domain.split("/", 1)[0].removeprefix("www.")
+        if domain and domain not in out:
+            out.append(domain)
+    return out
+
+
+def _url_matches_domains(url: str | None, domains: list[str]) -> bool:
+    if not url:
+        return False
+    from urllib.parse import urlparse
+
+    try:
+        host = (urlparse(url).hostname or "").lower().removeprefix("www.")
+    except ValueError:
+        return False
+    return any(host == domain or host.endswith("." + domain) for domain in domains)

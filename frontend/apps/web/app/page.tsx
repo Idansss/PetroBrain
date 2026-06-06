@@ -3,11 +3,11 @@ import Link from 'next/link';
 import { Banner, Logo } from '@petrobrain/ui';
 
 const SURFACES: Array<{
-  href: '/chat' | '/emissions' | '/admin/documents';
+  href: '/chat' | '/research' | '/emissions' | '/admin/documents';
   title: string;
   description: string;
   cta: string;
-  icon: 'chat' | 'leaf' | 'doc';
+  icon: 'chat' | 'research' | 'leaf' | 'doc';
 }> = [
   {
     href: '/chat',
@@ -15,6 +15,13 @@ const SURFACES: Array<{
     description: 'Guardrailed domain chat with streaming answers + citations.',
     cta: 'Open chat',
     icon: 'chat',
+  },
+  {
+    href: '/research',
+    title: 'Research',
+    description: 'Plan, approve and run governed oil and gas research.',
+    cta: 'Open research',
+    icon: 'research',
   },
   {
     href: '/emissions',
@@ -32,7 +39,7 @@ const SURFACES: Array<{
   },
 ];
 
-function SurfaceIcon({ kind }: { kind: 'chat' | 'leaf' | 'doc' }) {
+function SurfaceIcon({ kind }: { kind: 'chat' | 'research' | 'leaf' | 'doc' }) {
   const common = {
     width: 20,
     height: 20,
@@ -62,6 +69,14 @@ function SurfaceIcon({ kind }: { kind: 'chat' | 'leaf' | 'doc' }) {
           strokeLinecap="round"
           strokeLinejoin="round"
         />
+      </svg>
+    );
+  }
+  if (kind === 'research') {
+    return (
+      <svg {...common}>
+        <circle cx="8.5" cy="8.5" r="4.5" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M12 12l4 4M6.5 8.5h4M8.5 6.5v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
     );
   }
@@ -117,7 +132,7 @@ export default function HomePage() {
           </Banner>
         </div>
 
-        <section className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-3">
+        <section className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           {SURFACES.map((s) => (
             <Link
               key={s.href}

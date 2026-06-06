@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     conversation_shares_store_path: str = "data/conversation_shares.jsonl"
     feedback_store_path: str = "data/feedback_events.jsonl"
     tenant_memory_store_path: str = "data/tenant_memories.jsonl"
+    research_store_path: str = "data/research_runs.jsonl"
     # Hard ceiling on memories injected into a single chat turn. Past this we
     # silently drop the oldest active rows from the prompt - the row still
     # exists in the DB, the admin should archive deliberately.
@@ -200,6 +201,13 @@ class Settings(BaseSettings):
     # Web search (Tavily). Leave empty to disable; the tool stays registered and
     # returns a structured disabled-payload so the model can decline gracefully.
     tavily_api_key: str = ""
+
+    # Research Mode is read-only and source-grounded. Connector use remains
+    # disabled until the connector registry and per-connector RBAC exist.
+    research_enabled: bool = True
+    research_connectors_enabled: bool = False
+    research_max_steps: int = 8
+    research_max_sources: int = 20
 
     # Satellite data providers (A3). Public, license-clean sources cross-referenced
     # against reported flaring/methane. Leave empty to keep the provider registered

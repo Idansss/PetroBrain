@@ -93,7 +93,7 @@ python tests/eval_harness.py
 # 4. configure + run the API
 cp .env.example .env     # add ANTHROPIC_API_KEY / OPENAI_API_KEY
 uvicorn app.main:app --reload
-# POST /chat, /well-control/kill-sheet, /emissions/inventory  (see app/models/schemas.py)
+# POST /chat, /well-control/kill-sheet, /emissions/inventory, /research/plan
 
 # 5. async document ingestion (A5) - run the Celery worker
 celery -A app.workers.celery_app worker --loglevel=info -Q petrobrain.ingest
@@ -129,6 +129,38 @@ PY
 ```
 
 Initialize the vector schema once from `app/rag/vectorstore.py::SCHEMA`.
+
+---
+
+## Governed Research Mode
+
+Research Mode is a tenant-scoped, read-only analyst workflow for oil and gas
+questions. It requires explicit plan approval before execution, searches only
+enabled tenant documents and approved public domains, streams progress with
+server-sent events, and persists the source ledger, report, evidence pack, and
+audit metadata.
+
+The lifecycle is:
+
+1. `POST /research/plan`
+2. `POST /research/{id}/approve-plan`
+3. `POST /research/run?stream=true`
+4. `GET /research/{id}` or `GET /research/{id}/events`
+5. `POST /research/{id}/export`
+
+Set `PB_TAVILY_API_KEY` to enable public web research. Without it, runs continue
+against tenant documents and record `web_search_disabled`. External connectors
+are intentionally rejected even if requested; `PB_RESEARCH_CONNECTORS_ENABLED`
+is reserved for a future governed connector registry and does not bypass that
+boundary.
+
+Local JSON persistence uses `PB_RESEARCH_STORE_PATH`. With
+`PB_PERSISTENCE_BACKEND=postgres`, apply migration
+`app/db/migrations/015_research_runs.sql`; tenant row-level security is enforced
+through the same connection context as the other repositories.
+
+The analyst workspace is available at `/research` in the web app. Roles are
+limited to `platform_admin`, `admin`, `engineer`, and `hse`.
 
 ---
 
