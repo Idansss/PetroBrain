@@ -65,7 +65,9 @@ describe('OnboardingClient', () => {
     await screen.findByRole('heading', { name: 'Tell us about your work' });
 
     fireEvent.change(screen.getByLabelText(/full name/i), { target: { value: 'Ada Okafor' } });
-    fireEvent.change(screen.getByLabelText(/^country/i), { target: { value: 'Nigeria' } });
+    // Country is a themed dropdown: open it, then pick from the list.
+    fireEvent.click(screen.getByText('Select your country'));
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Nigeria' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save and continue' }));
 
     await waitFor(() => expect(saveIndividual).toHaveBeenCalled());

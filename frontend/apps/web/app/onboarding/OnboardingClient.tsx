@@ -4,11 +4,19 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import type { Route } from 'next';
 import { useEffect, useMemo, useState } from 'react';
 
-import { Logo } from '@petrobrain/ui';
+import { Logo, Select } from '@petrobrain/ui';
 import type { Role } from '@petrobrain/types';
 
 import { AuthGate } from '../chat/components/AuthGate';
+import { Combobox } from '@/lib/onboarding/Combobox';
+import {
+  COUNTRY_NAMES,
+  JOB_TITLES,
+  defaultTimezoneForCountry,
+  timezonesForCountry,
+} from '@/lib/onboarding/geo';
 import { useChatStore } from '@/lib/chat/store';
+import { useSettingsStore } from '@/lib/chat/settings';
 import {
   addOnboardingAsset,
   completeOnboarding,
@@ -93,11 +101,15 @@ export function OnboardingClient() {
   const token = useChatStore((state) => state.token);
   const principal = useChatStore((state) => state.principal);
   const baseUrl = useChatStore((state) => state.apiBaseUrl);
+  const callMeName = useSettingsStore((state) => state.callMeName);
   const [status, setStatus] = useState<OnboardingStatus | null>(null);
   const [options, setOptions] = useState(EMPTY_OPTIONS);
   const [step, setStep] = useState(0);
   const [individual, setIndividual] = useState(INITIAL_INDIVIDUAL);
   const [company, setCompany] = useState(INITIAL_COMPANY);
+  // Whether we already know the user's name (from signup or a saved answer),
+  // decided once at load so the name field can't appear/disappear mid-typing.
+  const [nameKnown, setNameKnown] = useState(false);
   const [asset, setAsset] = useState({ asset_name: '', asset_type: 'Field', country: '', notes: '' });
   const [invite, setInvite] = useState({ email: '', role: 'engineer' as Role, department: '' });
   const [notice, setNotice] = useState<string | null>(null);
@@ -117,7 +129,11 @@ export function OnboardingClient() {
         if (!active) return;
         setStatus(nextStatus);
         setOptions(nextOptions);
-        hydrateAnswers(nextStatus.answers, setIndividual, setCompany);
+        const savedName = typeof nextStatus.answers.full_name === 'string'
+          ? nextStatus.answers.full_name.trim()
+          : '';
+        setNameKnown(Boolean(savedName || callMeName.trim()));
+        hydrateAnswers(nextStatus.answers, callMeName, setIndividual, setCompany);
         if (nextStatus.onboarding_status === 'completed' && !editMode) {
           router.replace('/chat');
         }
@@ -126,7 +142,7 @@ export function OnboardingClient() {
         if (active) setError(reason instanceof Error ? reason.message : 'Could not load onboarding.');
       });
     return () => { active = false; };
-  }, [auth, editMode, router]);
+  }, [auth, editMode, router, callMeName]);
 
   if (!token || !principal) return <AuthGate />;
   if (!status && !error) return <LoadingOnboarding />;
@@ -204,7 +220,10 @@ export function OnboardingClient() {
         await saveCompany(auth, { ...company, current_step: 'done' });
       }
       const result = await completeOnboarding(auth, skippedOptional);
-      router.replace(result.recommended_destination as Route);
+      // Individuals always land in the chat workspace; only company accounts
+      // follow the server's recommended destination (the admin console).
+      const destination = accountType === 'individual' ? '/chat' : result.recommended_destination;
+      router.replace(destination as Route);
     } catch (reason) {
       setError(messageOf(reason));
     } finally {
@@ -254,6 +273,7 @@ export function OnboardingClient() {
           step={step}
           state={individual}
           options={options}
+          nameKnown={nameKnown}
           onChange={setIndividual}
         />
       ) : (
@@ -309,21 +329,65 @@ function IndividualStep({
   step,
   state,
   options,
+  nameKnown,
   onChange,
 }: {
   step: number;
   state: IndividualState;
   options: OnboardingOptions;
+  nameKnown: boolean;
   onChange: (state: IndividualState) => void;
 }) {
   if (step === 0) {
     return (
-      <Step title="Tell us about your work" subtitle="Only your name and country are required.">
+      <Step
+        title={nameKnown && state.full_name.trim() ? `Welcome, ${state.full_name.trim()}` : 'Tell us about your work'}
+        subtitle="Tell us where you work so PetroBrain can tune its defaults."
+      >
         <div className="grid gap-4 sm:grid-cols-2">
-          <TextField label="Full name" required value={state.full_name} onChange={(full_name) => onChange({ ...state, full_name })} />
-          <TextField label="Job title or role" value={state.job_title} onChange={(job_title) => onChange({ ...state, job_title })} />
-          <TextField label="Country" required value={state.country} onChange={(country) => onChange({ ...state, country })} />
-          <TextField label="Timezone" value={state.timezone} onChange={(timezone) => onChange({ ...state, timezone })} />
+          {nameKnown ? null : (
+            <TextField label="Full name" value={state.full_name} onChange={(full_name) => onChange({ ...state, full_name })} />
+          )}
+          <Combobox
+            label="Job title or role"
+            value={state.job_title}
+            options={JOB_TITLES}
+            onChange={(job_title) => onChange({ ...state, job_title })}
+            searchable
+            allowOther
+            placeholder="Select your role"
+            otherPlaceholder="Enter your job title"
+          />
+          <Combobox
+            label="Country"
+            value={state.country}
+            options={COUNTRY_NAMES}
+            onChange={(country) =>
+              onChange({
+                ...state,
+                country,
+                // Auto-fill the timezone only for a recognized country; a typed
+                // "Other" country leaves whatever timezone the user has set.
+                ...(COUNTRY_NAMES.includes(country)
+                  ? { timezone: defaultTimezoneForCountry(country) }
+                  : {}),
+              })
+            }
+            searchable
+            allowOther
+            placeholder="Select your country"
+            otherPlaceholder="Enter your country"
+          />
+          <Combobox
+            label="Timezone"
+            value={state.timezone}
+            options={timezonesForCountry(state.country)}
+            onChange={(timezone) => onChange({ ...state, timezone })}
+            searchable
+            allowOther
+            placeholder="Select your timezone"
+            otherPlaceholder="Enter your timezone"
+          />
         </div>
       </Step>
     );
@@ -337,7 +401,15 @@ function IndividualStep({
   if (step === 3) {
     return (
       <Step title="Which region should PetroBrain prioritize?" subtitle="This tunes source and regulatory suggestions; you can change it later.">
-        <SelectField label="Preferred jurisdiction" value={state.preferred_jurisdiction} options={options.regions} onChange={(preferred_jurisdiction) => onChange({ ...state, preferred_jurisdiction })} />
+        <Combobox
+          label="Preferred jurisdiction"
+          value={state.preferred_jurisdiction}
+          options={options.regions}
+          onChange={(preferred_jurisdiction) => onChange({ ...state, preferred_jurisdiction })}
+          allowOther
+          placeholder="Select a region"
+          otherPlaceholder="Enter your jurisdiction"
+        />
       </Step>
     );
   }
@@ -371,14 +443,14 @@ function CompanyStep({
 }) {
   if (step === 0) {
     return (
-      <Step title="Set up your company workspace" subtitle="Required company details first; everything else can be refined later.">
+      <Step title="Set up your company workspace" subtitle="Add your company details; everything else can be refined later.">
         <div className="grid gap-4 sm:grid-cols-2">
-          <TextField label="Company name" required value={state.company_name} onChange={(company_name) => onChange({ ...state, company_name })} />
+          <TextField label="Company name" value={state.company_name} onChange={(company_name) => onChange({ ...state, company_name })} />
           <TextField label="Website" value={state.company_website} onChange={(company_website) => onChange({ ...state, company_website })} />
-          <TextField label="Country of registration" required value={state.country_of_registration} onChange={(country_of_registration) => onChange({ ...state, country_of_registration })} />
-          <TextField label="Primary operating country" required value={state.primary_operating_country} onChange={(primary_operating_country) => onChange({ ...state, primary_operating_country })} />
-          <SelectField label="Company type" required value={state.company_type} options={options.company_types} onChange={(company_type) => onChange({ ...state, company_type })} />
-          <SelectField label="Company size" required value={state.company_size} options={options.company_sizes} onChange={(company_size) => onChange({ ...state, company_size })} />
+          <Combobox label="Country of registration" value={state.country_of_registration} options={COUNTRY_NAMES} onChange={(country_of_registration) => onChange({ ...state, country_of_registration })} searchable allowOther placeholder="Select a country" otherPlaceholder="Enter a country" />
+          <Combobox label="Primary operating country" value={state.primary_operating_country} options={COUNTRY_NAMES} onChange={(primary_operating_country) => onChange({ ...state, primary_operating_country })} searchable allowOther placeholder="Select a country" otherPlaceholder="Enter a country" />
+          <SelectField label="Company type" value={state.company_type} options={options.company_types} onChange={(company_type) => onChange({ ...state, company_type })} />
+          <SelectField label="Company size" value={state.company_size} options={options.company_sizes} onChange={(company_size) => onChange({ ...state, company_size })} />
         </div>
       </Step>
     );
@@ -389,7 +461,7 @@ function CompanyStep({
   if (step === 2) {
     return (
       <Step title="Jurisdiction and regulator focus" subtitle="PetroBrain will prioritize official sources for these contexts.">
-        <SelectField label="Primary jurisdiction" value={state.primary_jurisdiction} options={options.regions} onChange={(primary_jurisdiction) => onChange({ ...state, primary_jurisdiction })} />
+        <Combobox label="Primary jurisdiction" value={state.primary_jurisdiction} options={options.regions} onChange={(primary_jurisdiction) => onChange({ ...state, primary_jurisdiction })} allowOther placeholder="Select a region" otherPlaceholder="Enter your jurisdiction" />
         <div className="mt-5">
           <ChoiceList options={options.regulator_focus} selected={state.regulator_focus} onChange={(regulator_focus) => onChange({ ...state, regulator_focus })} />
         </div>
@@ -516,26 +588,27 @@ function ChoiceList({ options, selected, onChange }: { options: string[]; select
   );
 }
 
-function TextField({ label, value, onChange, required = false }: { label: string; value: string; onChange: (value: string) => void; required?: boolean }) {
+function TextField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   const id = `onboarding-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
   return (
-    <label htmlFor={id} className="block text-sm font-medium">
-      {label}{required ? ' *' : ''}
-      <input id={id} required={required} value={value} onChange={(event) => onChange(event.target.value)} className="mt-1.5 h-11 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-neutral-950" />
+    <label htmlFor={id} className="block text-xs font-medium uppercase tracking-wide text-neutral-600 dark:text-neutral-300">
+      {label}
+      <input id={id} value={value} onChange={(event) => onChange(event.target.value)} className="mt-1.5 h-11 w-full rounded-xl border border-neutral-200 bg-white px-3.5 text-sm font-normal normal-case tracking-normal text-neutral-900 outline-none transition-all hover:border-primary-300 focus:border-primary-400 focus:ring-2 focus:ring-primary-200 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100" />
     </label>
   );
 }
 
-function SelectField({ label, value, options, onChange, required = false }: { label: string; value: string; options: string[]; onChange: (value: string) => void; required?: boolean }) {
-  const id = `onboarding-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+function SelectField({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {
   return (
-    <label htmlFor={id} className="block text-sm font-medium">
-      {label}{required ? ' *' : ''}
-      <select id={id} required={required} value={value} onChange={(event) => onChange(event.target.value)} className="mt-1.5 h-11 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm outline-none focus:border-primary-500 dark:border-neutral-700 dark:bg-neutral-950">
-        <option value="">Select</option>
-        {options.map((option) => <option key={option} value={option}>{formatOption(option)}</option>)}
-      </select>
-    </label>
+    <Select
+      label={label}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      options={[
+        { value: '', label: 'Select' },
+        ...options.map((option) => ({ value: option, label: formatOption(option) })),
+      ]}
+    />
   );
 }
 
@@ -559,10 +632,14 @@ function OnboardingError({ message }: { message: string }) {
 
 function hydrateAnswers(
   answers: Record<string, unknown>,
+  knownName: string,
   setIndividual: (value: IndividualState) => void,
   setCompany: (value: CompanyState) => void,
 ) {
-  setIndividual({ ...INITIAL_INDIVIDUAL, ...(answers as Partial<IndividualState>) });
+  const merged = { ...INITIAL_INDIVIDUAL, ...(answers as Partial<IndividualState>) };
+  // Reuse the name captured at signup so we never ask the user for it again.
+  if (!merged.full_name.trim() && knownName.trim()) merged.full_name = knownName.trim();
+  setIndividual(merged);
   setCompany({ ...INITIAL_COMPANY, ...(answers as Partial<CompanyState>) });
 }
 
