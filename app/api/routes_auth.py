@@ -6,10 +6,14 @@ This is the JWT mint point for the office web app. Both flows return the same
 already expects; the token is what every other route validates via
 :func:`app.api.deps.get_principal`.
 
-Multi-tenancy is intentionally simple for Phase-1: signup always lands the new
-user in ``settings.default_signup_tenant_id`` with ``settings.default_signup_role``.
-Admin-driven multi-tenant flows still go through ``/admin/tenants`` and the
-invite-based ``/admin/tenants/{tenant_id}/users`` route.
+Multi-tenancy: every self-serve signup provisions its own isolated tenant
+(workspace) and makes the new user its ``tenant_owner`` - one account per email
+across the whole platform. A missing ``account_type`` defaults to an individual
+workspace rather than dropping the user into a shared tenant, so self-serve
+users are never co-mingled. Admin-driven multi-tenant flows still go through
+``/admin/tenants`` and the invite-based ``/admin/tenants/{tenant_id}/users``
+route; ``settings.default_signup_tenant_id`` survives only as signin's
+lockout-bucket key for unknown emails.
 """
 from __future__ import annotations
 
@@ -89,15 +93,13 @@ class AuthResponse(BaseModel):
     onboarding_required: bool = False
 
 
-def _ensure_default_tenant(tenant_id: str, name: str) -> None:
-    """Create the demo tenant on first signup so we never 500 on a fresh DB."""
-    repo = get_tenants_repository()
-    if repo.get(tenant_id) is not None:
-        return
+def _safe_delete_tenant(repo, tenant_id: str) -> None:
+    """Best-effort teardown of a tenant we just created when the rest of signup
+    fails - keeps a failed signup from leaving an orphaned empty workspace
+    behind. Never raises: cleanup failure must not mask the original error."""
     try:
-        repo.create(id=tenant_id, name=name)
-    except ValueError:
-        # Race: another worker created it between our get and create. That's fine.
+        repo.delete(tenant_id)
+    except Exception:  # noqa: BLE001
         pass
 
 
@@ -160,36 +162,39 @@ async def signup(req: SignupRequest) -> AuthResponse:
     settings = get_settings()
     if not settings.enable_self_signup:
         raise HTTPException(status_code=403, detail="self-serve signup is disabled")
-    role = _resolve_signup_role(req.email)
-    if role not in VALID_ROLES:
-        raise HTTPException(status_code=500, detail="invalid signup role")
 
     _validate_password(req.password)
     users = get_users_repository()
-    if req.account_type and users.find_by_email_any_tenant(req.email) is not None:
+
+    # One account per email across the whole platform. Checked up front so we
+    # never provision a tenant for an email that already belongs somewhere -
+    # otherwise the same email could spawn an unbounded number of workspaces.
+    if users.find_by_email_any_tenant(req.email) is not None:
         raise HTTPException(status_code=409, detail="email is already registered")
 
-    if req.account_type:
-        tenant_id = f"{req.account_type}-{uuid4().hex[:12]}"
-        get_tenants_repository().create(
-            id=tenant_id,
-            name=(req.full_name or "New PetroBrain workspace").strip(),
-            attributes={
-                "account_type": req.account_type,
-                "workspace_type": req.account_type,
-                "onboarding_status": "in_progress",
-                "created_by_signup": True,
-            },
-        )
-        role = "tenant_owner"
-    else:
-        tenant_id = settings.default_signup_tenant_id
-        _ensure_default_tenant(tenant_id, settings.default_signup_tenant_name)
+    # Every self-serve signup gets its own isolated workspace; a missing
+    # account_type is treated as an individual workspace rather than co-mingling
+    # users in a shared tenant.
+    account_type = req.account_type or "individual"
+    # Founder bootstrap emails keep platform_admin; everyone else owns the tenant
+    # we are about to create for them.
+    base_role = _resolve_signup_role(req.email)
+    role = base_role if base_role == "platform_admin" else "tenant_owner"
+    if role not in VALID_ROLES:
+        raise HTTPException(status_code=500, detail="invalid signup role")
 
-    # Friendlier error than the repo's generic ValueError so the frontend can
-    # surface "already registered" without parsing the message.
-    if users.get_by_email(tenant_id=tenant_id, email=req.email) is not None:
-        raise HTTPException(status_code=409, detail="email is already registered")
+    tenants = get_tenants_repository()
+    tenant_id = f"{account_type}-{uuid4().hex[:12]}"
+    tenants.create(
+        id=tenant_id,
+        name=(req.full_name or "").strip() or "New PetroBrain workspace",
+        attributes={
+            "account_type": account_type,
+            "workspace_type": account_type,
+            "onboarding_status": "in_progress",
+            "created_by_signup": True,
+        },
+    )
 
     try:
         record = users.signup(
@@ -199,10 +204,16 @@ async def signup(req: SignupRequest) -> AuthResponse:
             password_hash=hash_password(req.password),
         ).as_dict()
     except ValueError as exc:
-        # Lost the race with another signup for the same email.
+        # User creation failed after the tenant was created (e.g. a race that
+        # registered the same email first). Tear the empty tenant back down so
+        # a failed signup leaves nothing behind.
+        _safe_delete_tenant(tenants, tenant_id)
         if "already exists" in str(exc):
             raise HTTPException(status_code=409, detail="email is already registered") from exc
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception:
+        _safe_delete_tenant(tenants, tenant_id)
+        raise
 
     token = _mint_for(record)
     audit_logger.write(AuditEvent(
@@ -213,12 +224,13 @@ async def signup(req: SignupRequest) -> AuthResponse:
         route="/auth/signup",
         request={"email": record["email"]},
         response={"user_id": record["id"]},
-        metadata={"flow": "self_serve"},
+        metadata={"flow": "self_serve", "account_type": account_type},
     ))
+    # A freshly provisioned workspace always needs onboarding.
     return AuthResponse(
         token=token,
         principal=_to_principal_payload(record),
-        onboarding_required=bool(req.account_type),
+        onboarding_required=True,
     )
 
 

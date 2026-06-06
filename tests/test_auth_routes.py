@@ -59,22 +59,38 @@ def wire(monkeypatch, tenants_repo, users_repo):
     auth_lockout.reset_for_tests()
 
 
-def test_signup_creates_active_user_in_default_tenant_and_returns_jwt(tenants_repo, users_repo):
+def test_signup_provisions_isolated_individual_workspace_and_returns_jwt(tenants_repo, users_repo):
+    # No account_type: defaults to a dedicated individual workspace rather than
+    # a shared tenant, and the new user owns it.
     r = client.post("/auth/signup", json={"email": "alice@example.com", "password": "hunter2hunter2"})
     assert r.status_code == 201, r.text
     body = r.json()
     assert body["principal"]["email"] == "alice@example.com"
-    assert body["principal"]["tenant_id"] == "demo"
-    assert body["principal"]["role"] == "engineer"
+    tenant_id = body["principal"]["tenant_id"]
+    assert tenant_id.startswith("individual-")
+    assert tenant_id != "demo"
+    assert body["principal"]["role"] == "tenant_owner"
+    assert body["onboarding_required"] is True
     assert body["token"]
 
-    # Default tenant was bootstrapped on first signup.
-    assert tenants_repo.get("demo") is not None
+    # A dedicated tenant was created (the shared "demo" tenant is never used).
+    assert tenants_repo.get(tenant_id) is not None
+    assert tenants_repo.get("demo") is None
     # User row landed active with a hash, not the plain password.
-    row = users_repo.get_by_email(tenant_id="demo", email="alice@example.com")
+    row = users_repo.get_by_email(tenant_id=tenant_id, email="alice@example.com")
     assert row is not None
     assert row["status"] == "active"
     assert row["password_hash"] and row["password_hash"] != "hunter2hunter2"
+
+
+def test_each_signup_lands_in_a_separate_tenant(users_repo):
+    first = client.post("/auth/signup", json={"email": "one@example.com", "password": "hunter2hunter2"})
+    second = client.post("/auth/signup", json={"email": "two@example.com", "password": "hunter2hunter2"})
+    assert first.status_code == 201 and second.status_code == 201
+    assert (
+        first.json()["principal"]["tenant_id"]
+        != second.json()["principal"]["tenant_id"]
+    )
 
 
 def test_signup_rejects_duplicate_email():
@@ -133,9 +149,10 @@ def test_signin_with_unknown_email_returns_401_same_as_wrong_password():
 
 
 def test_signin_blocks_deactivated_user(users_repo):
-    client.post("/auth/signup", json={"email": "dave@example.com", "password": "correcthorse1"})
-    row = users_repo.get_by_email(tenant_id="demo", email="dave@example.com")
-    users_repo.set_status(tenant_id="demo", user_id=row["id"], status="deactivated")
+    signup = client.post("/auth/signup", json={"email": "dave@example.com", "password": "correcthorse1"})
+    tenant_id = signup.json()["principal"]["tenant_id"]
+    row = users_repo.get_by_email(tenant_id=tenant_id, email="dave@example.com")
+    users_repo.set_status(tenant_id=tenant_id, user_id=row["id"], status="deactivated")
     r = client.post("/auth/signin", json={"email": "dave@example.com", "password": "correcthorse1"})
     assert r.status_code == 401
 
@@ -151,8 +168,9 @@ def test_signup_token_works_against_protected_route():
         "/admin/tenants/demo/users",
         headers={"Authorization": f"Bearer {token}"},
     )
-    # engineer role is denied (only platform_admin/admin), proving the JWT was
-    # decoded and the principal was rebuilt; we don't care about 200 here.
+    # The signup user owns a different tenant, so this cross-tenant admin call is
+    # denied - proving the JWT was decoded and the principal was rebuilt; we
+    # don't care about 200 here.
     assert chat_check.status_code == 403
 
 
@@ -178,3 +196,35 @@ def test_signup_with_account_type_creates_isolated_workspace(tenants_repo, users
     assert users_repo.get_by_email(
         tenant_id=tenant_id, email="company-owner@example.com"
     )["status"] == "active"
+
+
+def test_signup_rejects_duplicate_email_before_creating_a_tenant(tenants_repo):
+    first = client.post(
+        "/auth/signup",
+        json={"email": "owner@acme.com", "password": "correcthorse1", "account_type": "company"},
+    )
+    assert first.status_code == 201
+    before = len(tenants_repo.list_records())
+
+    dup = client.post(
+        "/auth/signup",
+        json={"email": "owner@acme.com", "password": "anotherone1", "account_type": "company"},
+    )
+    assert dup.status_code == 409
+    # The rejected signup must not have provisioned a second workspace.
+    assert len(tenants_repo.list_records()) == before
+
+
+def test_signup_cleans_up_tenant_when_user_creation_fails(monkeypatch, tenants_repo, users_repo):
+    # Simulate a lost race: the up-front email check passes, then the user repo
+    # rejects the insert. The half-created tenant must be torn back down.
+    def boom(**_kwargs):
+        raise ValueError("user with email already exists in tenant")
+
+    monkeypatch.setattr(users_repo, "signup", boom)
+    r = client.post(
+        "/auth/signup",
+        json={"email": "racer@example.com", "password": "correcthorse1", "account_type": "individual"},
+    )
+    assert r.status_code == 409
+    assert tenants_repo.list_records() == []

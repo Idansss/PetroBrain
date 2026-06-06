@@ -98,6 +98,18 @@ class LocalJsonTenantsRepository:
                 return row
         raise KeyError(f"tenant {id!r} not found")
 
+    def delete(self, id: str) -> bool:
+        """Remove a tenant row. Returns True if a row was deleted. Used for
+        best-effort cleanup when a signup fails after the tenant was created;
+        not a general-purpose tenant teardown (it does not cascade to users)."""
+        with self._lock:
+            rows = self._read_all_locked()
+            kept = [r for r in rows if r["id"] != id]
+            if len(kept) == len(rows):
+                return False
+            self._write_all_locked(kept)
+            return True
+
     def _read_all(self) -> list[dict[str, Any]]:
         with self._lock:
             return self._read_all_locked()
@@ -208,6 +220,14 @@ class PostgresTenantsRepository:
         if row is None:
             raise KeyError(f"tenant {id!r} not found")
         return _serialize_tenant(row)
+
+    def delete(self, id: str) -> bool:
+        """Remove a tenant row. Returns True if a row was deleted. Used for
+        best-effort cleanup when a signup fails after the tenant was created;
+        not a general-purpose tenant teardown (it does not cascade to users)."""
+        with self._admin_conn() as conn:
+            cur = conn.execute("DELETE FROM tenants WHERE id = %s", (id,))
+            return cur.rowcount > 0
 
     def _admin_conn(self):
         from app.db import pg
