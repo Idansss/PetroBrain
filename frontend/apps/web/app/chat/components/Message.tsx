@@ -384,10 +384,10 @@ interface AssistantToolbarProps {
 }
 
 function AssistantToolbar({ text, messageId, onRegenerate }: AssistantToolbarProps) {
-  const [vote, setVote] = useState<'up' | 'down' | null>(null);
   const [copied, setCopied] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const speechStartTimerRef = useRef<number | null>(null);
   const canReadAloud =
     typeof window !== 'undefined' &&
     'speechSynthesis' in window &&
@@ -395,7 +395,10 @@ function AssistantToolbar({ text, messageId, onRegenerate }: AssistantToolbarPro
 
   useEffect(() => {
     return () => {
-      if (utteranceRef.current && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      if (speechStartTimerRef.current !== null) {
+        window.clearTimeout(speechStartTimerRef.current);
+      }
+      if (utteranceRef.current && 'speechSynthesis' in window) {
         window.speechSynthesis.cancel();
       }
     };
@@ -414,25 +417,45 @@ function AssistantToolbar({ text, messageId, onRegenerate }: AssistantToolbarPro
   function readAloud() {
     if (!canReadAloud) return;
     if (speaking) {
+      if (speechStartTimerRef.current !== null) {
+        window.clearTimeout(speechStartTimerRef.current);
+        speechStartTimerRef.current = null;
+      }
       window.speechSynthesis.cancel();
       utteranceRef.current = null;
       setSpeaking(false);
       return;
     }
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.95;
-    utterance.onend = () => {
+
+    const spokenText = speechTextFromMarkdown(text);
+    if (!spokenText) return;
+
+    const utterance = new SpeechSynthesisUtterance(spokenText);
+    utterance.lang =
+      document.documentElement.lang || navigator.language || 'en-US';
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+
+    const finishSpeaking = () => {
       utteranceRef.current = null;
+      speechStartTimerRef.current = null;
       setSpeaking(false);
     };
-    utterance.onerror = () => {
-      utteranceRef.current = null;
-      setSpeaking(false);
-    };
+    utterance.onend = finishSpeaking;
+    utterance.onerror = finishSpeaking;
+
     window.speechSynthesis.cancel();
     utteranceRef.current = utterance;
     setSpeaking(true);
-    window.speechSynthesis.speak(utterance);
+    // Chromium can ignore speak() when it immediately follows cancel().
+    // Starting on the next task makes repeated read/stop/read actions reliable.
+    speechStartTimerRef.current = window.setTimeout(() => {
+      speechStartTimerRef.current = null;
+      if (utteranceRef.current === utterance) {
+        window.speechSynthesis.speak(utterance);
+      }
+    }, 50);
   }
 
   return (
@@ -456,20 +479,6 @@ function AssistantToolbar({ text, messageId, onRegenerate }: AssistantToolbarPro
           {speaking ? <StopAudioIcon /> : <SpeakerIcon />}
         </IconButton>
       ) : null}
-      <IconButton
-        label={vote === 'up' ? 'Remove upvote' : 'Good response'}
-        onClick={() => setVote((v) => (v === 'up' ? null : 'up'))}
-        active={vote === 'up'}
-      >
-        <ThumbsUpIcon filled={vote === 'up'} />
-      </IconButton>
-      <IconButton
-        label={vote === 'down' ? 'Remove downvote' : 'Bad response'}
-        onClick={() => setVote((v) => (v === 'down' ? null : 'down'))}
-        active={vote === 'down'}
-      >
-        <ThumbsDownIcon filled={vote === 'down'} />
-      </IconButton>
       {onRegenerate ? (
         <IconButton label="Regenerate" onClick={() => onRegenerate(messageId)}>
           <RegenerateIcon />
@@ -477,6 +486,20 @@ function AssistantToolbar({ text, messageId, onRegenerate }: AssistantToolbarPro
       ) : null}
     </div>
   );
+}
+
+export function speechTextFromMarkdown(markdown: string): string {
+  return markdown
+    .replace(/```[\w-]*\n?([\s\S]*?)```/g, '$1')
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/<https?:\/\/[^>]+>/g, '')
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/^\s{0,3}(#{1,6}|>|[-+*]|\d+[.)])\s+/gm, '')
+    .replace(/[*_~`]/g, '')
+    .replace(/\|/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function IconButton({

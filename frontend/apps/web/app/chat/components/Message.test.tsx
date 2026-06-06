@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -6,7 +6,7 @@ import { applyEvent } from '../ChatClient';
 import type { AssistantMessage, Message as MessageType } from '@/lib/chat/types';
 import type { StreamEvent } from '@/lib/chat/streamChat';
 
-import { Message } from './Message';
+import { Message, speechTextFromMarkdown } from './Message';
 
 const ASSISTANT_ID = 'assistant-1';
 
@@ -212,7 +212,10 @@ describe('Message - kill-sheet stream', () => {
     const cancel = vi.fn();
     class MockSpeechSynthesisUtterance {
       text: string;
+      lang = '';
       rate = 1;
+      pitch = 1;
+      volume = 1;
       onend: (() => void) | null = null;
       onerror: (() => void) | null = null;
 
@@ -228,7 +231,7 @@ describe('Message - kill-sheet stream', () => {
 
     const message: AssistantMessage = {
       ...blankAssistant(),
-      text: 'Confirm the pressure trend before changing the choke.',
+      text: '## Safety\nConfirm the **pressure trend** before changing the [choke](https://example.com).',
       streaming: false,
     };
 
@@ -237,11 +240,31 @@ describe('Message - kill-sheet stream', () => {
     await user.click(screen.getByRole('button', { name: 'Read aloud' }));
 
     expect(cancel).toHaveBeenCalledTimes(1);
-    expect(speak).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(speak).toHaveBeenCalledTimes(1));
     expect(speak.mock.calls[0]?.[0]).toMatchObject({
-      text: 'Confirm the pressure trend before changing the choke.',
-      rate: 0.95,
+      text: 'Safety Confirm the pressure trend before changing the choke.',
+      rate: 1,
+      pitch: 1,
+      volume: 1,
     });
+    expect(screen.getByRole('button', { name: 'Stop reading' })).toBeInTheDocument();
+  });
+
+  it('shows only the server-backed feedback buttons', () => {
+    const message: AssistantMessage = {
+      ...blankAssistant(),
+      text: 'Use the approved operating envelope.',
+      streaming: false,
+      turnId: 'turn-1',
+    };
+    const onFeedback = vi.fn();
+
+    render(<Message message={message} onFeedback={onFeedback} />);
+
+    expect(screen.getAllByRole('button', { name: 'Good answer' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Bad answer' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: 'Good response' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Bad response' })).not.toBeInTheDocument();
   });
 
   it('renders a guardrail refusal banner when a safety_bypass flag arrives', () => {
@@ -266,6 +289,16 @@ describe('Message - kill-sheet stream', () => {
     expect(
       screen.getAllByText(/can't help with bypassing a safety system/).length,
     ).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('speechTextFromMarkdown', () => {
+  it('removes Markdown controls and raw URLs before speech', () => {
+    expect(
+      speechTextFromMarkdown(
+        '# Heading\n- Read **this** [procedure](https://example.com) at https://example.com/raw.',
+      ),
+    ).toBe('Heading Read this procedure at');
   });
 });
 
