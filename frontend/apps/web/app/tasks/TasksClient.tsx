@@ -291,7 +291,7 @@ function TaskFormModal({
   mode: 'create' | 'edit';
   draft: TaskCreateInput;
   busy: boolean;
-  error?: string;
+  error?: string | undefined;
   onClose: () => void;
   onSubmit: (data: TaskCreateInput) => void;
 }) {
