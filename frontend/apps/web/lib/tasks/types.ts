@@ -21,12 +21,12 @@ export interface TaskListResponse {
 
 export interface TaskCreateInput {
   title: string;
-  description?: string;
+  description?: string | undefined;
   category: string;
   priority: PetroTask['priority'];
   recurrence_type: string;
-  assigned_to_team?: string;
-  due_date?: string;
+  assigned_to_team?: string | undefined;
+  due_date?: string | undefined;
   timezone: string;
   status: 'active';
   compliance_critical: boolean;
@@ -35,11 +35,11 @@ export interface TaskCreateInput {
 }
 
 export interface TaskUpdateInput {
-  title?: string;
-  description?: string;
-  category?: string;
-  priority?: PetroTask['priority'];
-  recurrence_type?: string;
-  assigned_to_team?: string;
-  due_date?: string;
+  title?: string | undefined;
+  description?: string | undefined;
+  category?: string | undefined;
+  priority?: PetroTask['priority'] | undefined;
+  recurrence_type?: string | undefined;
+  assigned_to_team?: string | undefined;
+  due_date?: string | undefined;
 }
